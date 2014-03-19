@@ -1,0 +1,118 @@
+<?xml version="1.0"?>
+<presets>
+   <category name="Audio">
+    <label>MP3</label>
+    <params>-ovc frameno -oac mp3lame -of rawaudio -lameopts cbr:br=128</params>
+    <extension>.mp3</extension>
+  </category>  
+
+  <category name="AVI">
+    <label>XVID FullScreen</label>
+    <params>-vf scale=544:288 -ovc xvid -xvidencopts bitrate=1000 -lavcopts aspect=4/3 -oac mp3lame -lameopts cbr=128</params>
+    <extension>.avi</extension>
+  </category>
+  
+  <category name="AVI">
+    <label>XVID Widescreen</label>
+    <params>-vf scale=704:384 -ovc xvid -xvidencopts bitrate=1200 -lavcopts aspect=19/6 -oac mp3lame -lameopts cbr=128</params>
+    <extension>.avi</extension>
+  </category>
+
+  <category name="AVI">
+    <label>DIVX</label>
+    <params>-mc 0 -ofps 18.000 -vf-add crop=0:0:-1:-1 -vf-add scale=320:240 -vf-add expand=320:240:-1:-1:1 -srate 44100 -ovc lavc -lavcopts vcodec=mpeg4 -lavcopts vbitrate=1200 -ffourcc DIVX -oac mp3lame -lameopts vbr=0 -lameopts br=64 -lameopts vol=0 -lameopts mode=0 -lameopts aq=7 -lameopts padding=3 -af volnorm</params>
+    <extension>.avi</extension>
+  </category>
+
+  <category name="MPG">
+    <label>VCD-NTSC (mpg1)</label>
+    <params>-oac lavc -ovc lavc -of mpeg -mpegopts format=xvcd -vf scale=352:240 -srate 44100 -af lavcresample=44100 -lavcopts vcodec=mpeg1video:keyint=18:vrc_buf_size=327:vrc_minrate=1152:vrc_maxrate=1152:acodec=mp2:abitrate=224:vbitrate=1152:aspect=4/3 -ofps 30000/1001</params>
+    <extension>.mpg</extension>
+  </category>
+
+  <category name="MPG">
+    <label>VCD-PAL (mpg1)</label>
+    <params>-oac lavc -ovc lavc -of mpeg -mpegopts format=xvcd -vf scale=352:288 -srate 44100 -af lavcresample=44100 -lavcopts vcodec=mpeg1video:keyint=15:vrc_buf_size=327:vrc_minrate=1152:vbitrate=1152:vrc_maxrate=1152:acodec=mp2:abitrate=224:aspect=16/9 -ofps 25</params>
+    <extension>.mpeg</extension>
+  </category>
+
+  <category name="MPG">
+    <label>SVCD-NTSC (mpg2)</label>
+    <params>-oac lavc -ovc lavc -of mpeg -mpegopts format=xsvcd -vf scale=480:480 -srate 44100 -af lavcresample=44100 -lavcopts vcodec=mpeg2video:mbd=2:keyint=18:vrc_buf_size=917:vrc_minrate=600:vbitrate=2500:vrc_maxrate=2500:acodec=mp2:abitrate=224:aspect=16/9 -ofps 30000/1001</params>
+    <extension>.mpeg</extension>
+  </category>
+  
+  <category name="MPG">
+    <label>SVCD-PAL (mpg2)</label>
+    <params>-oac lavc -ovc lavc -of mpeg -mpegopts format=xvcd -vf scale=352:288 -srate 44100 -af lavcresample=44100 -lavcopts vcodec=mpeg1video:keyint=15:vrc_buf_size=327:vrc_minrate=1152:vbitrate=1152:vrc_maxrate=1152:acodec=mp2:abitrate=224:aspect=16/9 -ofps 25</params>
+    <extension>.mpeg</extension>
+  </category>
+
+  <category name="FLV">
+    <label>flv</label>
+    <params>-forceidx -of lavf -oac mp3lame -srate 22050 -ovc lavc -lavcopts vcodec=flv:vbitrate=500:abitrate=56:mbd=2:mv0:trell:v4mv:cbp:last_pred=3 -vf scale=360:240</params>
+    <extension>.flv</extension>
+  </category>
+
+  <category name="MP4">
+    <label>Ipod nano</label>
+    <params>-oac lavc -ovc lavc -lavcopts vcodec=mpeg4:v4mv:mbd=2:trell:aic=2:cmp=2:subcmp=2:acodec=aac:abitrate=128:vbitrate=800:vglobal=1:aglobal=1 -vf scale=320:240 -of lavf -lavfopts format=mp4</params>
+    <extension>.m4v</extension>
+  </category>
+
+  <category name="MP4">
+    <label>mp4</label>
+    <params>-oac lavc -ovc lavc -lavcopts aglobal=1:vglobal=1:vcodec=mpeg4:acodec=aac -af lavcresample=24000 -vf harddup -of lavf -lavfopts format=psp -ofps 30000/1001 -vf scale=320:240</params>
+    <extension>.mp4</extension>
+  </category>
+
+  <category name="MP4">
+    <label>Matroska (mkv)</label>
+    <params>-vf scale=320:240,harddup -af channels=2 -ofps 29.970 -srate 44100 -oac faac -faacopts br=128:mpeg=4:object=2 -ovc x264 -ffourcc avc1 -x264encopts bitrate=844:me=hex:level_idc=21:keyint=250:frameref=1:bframes=0:nocabac:threads=auto -aspect 4:3 -mc 1</params>
+    <extension>.mkv</extension>
+  </category>
+
+  <category name="VOB">
+    <label>DVD PAL SMALL</label>
+    <params>-vf scale=352:288,harddup -af channels=2 -ofps 25 -srate 48000 -oac lavc -lavcopts acodec=ac3:abitrate=448 -of mpeg -mpegopts format=xdvd -ovc lavc -lavcopts vcodec=mpeg2video:vrc_buf_size=1835:vrc_maxrate=9000:vbitrate=1856:keyint=15:vstrict=0 -mc 1</params>
+    <extension>.vob</extension>
+  </category>
+
+   <category name="VOB">
+    <label>DVD PAL LARGE</label>
+      <params>-vf scale=750:576,harddup -af channels=2 -ofps 25 -srate 48000 -oac lavc -lavcopts acodec=ac3:abitrate=448 -of mpeg -mpegopts format=xdvd -ovc lavc -lavcopts vcodec=mpeg2video:vrc_buf_size=1835:vrc_maxrate=9000:vbitrate=1856:keyint=15:vstrict=0 -mc 1</params>
+    <extension>.vob</extension>
+  </category>
+
+   <category name="VOB">
+    <label>DVD NTSC SMALL</label>
+    <params>-vf scale=313:240,expand=352:240,harddup -af channels=2 -ofps 30000/1001 -srate 48000 -oac lavc -lavcopts acodec=ac3:abitrate=448 -of mpeg -mpegopts format=xdvd -ovc lavc -lavcopts vcodec=mpeg2video:vrc_buf_size=1835:vrc_maxrate=9000:vbitrate=1856:keyint=15:vstrict=0 -mc 1</params>
+    <extension>.vob</extension>
+  </category>
+
+  <category name="VOB">
+    <label>DVD NTSC LARGE</label>
+    <params>-vf scale=626:480,expand=720:480,harddup -af channels=2 -ofps 30000/1001 -srate 48000 -oac lavc -lavcopts acodec=ac3:abitrate=448 -of mpeg -mpegopts format=xdvd -ovc lavc -lavcopts vcodec=mpeg2video:vrc_buf_size=1835:vrc_maxrate=9000:vbitrate=6000:keyint=15:vstrict=0 -mc 1 </params>
+    <extension>.vob</extension>
+  </category>
+
+  <category name="WMV">
+    <label>High quality and size</label>
+    <params>-vf scale=320:240,harddup -af channels=2 -ofps 29.970 -srate 44100 -oac lavc -lavcopts acodec=wmav2:abitrate=128 -ovc lavc -ffourcc WMV2 -lavcopts vcodec=wmv2:vbitrate=1126:keyint=250:aspect=4/3 -of lavf -lavfopts format=wmv -mc 1</params>
+    <extension>.wmv</extension>
+  </category>
+
+  <category name="WMV">
+    <label>Medium quality and size</label>
+    <params>-vf scale=640:480,harddup -af channels=2 -ofps 24 -srate 44100 -oac lavc -lavcopts acodec=wmav2:abitrate=128 -ovc lavc -ffourcc WMV2 -lavcopts vcodec=wmv2:vbitrate=1536:keyint=250 -of lavf -lavfopts format=wmv -mc 1</params>
+    <extension>.wmv</extension>
+  </category>
+
+ <category name="WMV">
+    <label>Low quality and size</label>
+    <params>-vf scale=320:240,harddup -af channels=2 -ofps 18 -srate 22050 -oac lavc -lavcopts acodec=wmav2:abitrate=64 -ovc lavc -ffourcc WMV2 -lavcopts vcodec=wmv2:vbitrate=384:keyint=250 -of lavf -lavfopts format=wmv -mc 1</params>
+    <extension>.wmv</extension>
+  </category>
+</presets>
+
+
