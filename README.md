@@ -48,4 +48,8 @@ Endpoints:
 
 - Python 3.10+
 - `ffmpeg` and `ffprobe` installed on the system
-- For Web API: `fastapi` and `uvicorn`
+- Install Python deps:
+
+```bash
+pip install -r requirements.txt
+```
