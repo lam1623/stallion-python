@@ -2,7 +2,7 @@
 
 Legacy GTK interface for mencoder (original project), now with a modern FFmpeg-based core that can be reused by desktop and web frontends.
 
-Copyright 2013-2014 Lino Alfonso <lino@lt.desoft.cu>
+Copyright 2013-2026 Lino Alfonso <lleisdier.alfonso+stallion@gmail.com>
 
 ## Modern MVP (new code)
 
