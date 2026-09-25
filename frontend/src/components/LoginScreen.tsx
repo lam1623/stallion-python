@@ -30,7 +30,7 @@ export function LoginScreen() {
     <div className="relative grid h-full place-items-center overflow-hidden bg-bg p-6">
       <div
         aria-hidden
-        className="pointer-events-none absolute left-1/2 top-1/3 h-[28rem] w-[44rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand opacity-[0.12] blur-3xl"
+        className="pointer-events-none absolute left-1/2 top-1/3 h-[28rem] w-[44rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand opacity-[0.12] blur-3xl dark:opacity-[0.06]"
       />
       <form
         onSubmit={submit}

@@ -28,6 +28,8 @@ const MOD = isMac ? "⌘" : "Ctrl";
 function useQueueShortcuts() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // Open dropdowns and dialogs handle Escape/arrows themselves and mark the event as handled
+      if (event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, [contenteditable='true'], [role='dialog'], [role='menu']")) return;
       const store = useStore.getState();
@@ -237,9 +239,9 @@ function EmptyState() {
       <div className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-dashed border-border-strong bg-surface/60 px-8 py-14 text-center sm:px-12">
         <div
           aria-hidden
-          className="pointer-events-none absolute -top-32 left-1/2 h-72 w-[40rem] -translate-x-1/2 rounded-full bg-brand opacity-[0.13] blur-3xl"
+          className="pointer-events-none absolute -top-32 left-1/2 h-72 w-[40rem] -translate-x-1/2 rounded-full bg-brand opacity-[0.13] blur-3xl dark:opacity-[0.06]"
         />
-        <div className="relative mx-auto mb-6 grid size-16 place-items-center rounded-2xl bg-brand text-white shadow-[0_16px_40px_-16px_var(--accent)] ring-1 ring-white/20 ring-inset">
+        <div className="relative mx-auto mb-6 grid size-16 place-items-center rounded-2xl bg-brand text-white shadow-[0_16px_40px_-16px_var(--glow)] ring-1 ring-white/20 ring-inset">
           <FilePlus2 className="size-7" />
         </div>
         <h2 className="relative text-2xl font-semibold tracking-tight text-fg">{t("empty.title")}</h2>

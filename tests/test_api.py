@@ -48,6 +48,19 @@ def test_health_is_public_and_api_is_not(client: TestClient) -> None:
     assert system["ffmpeg"]["available"] is True and system["desktop"] is False
 
 
+def test_html_shell_carries_the_saved_theme(tmp_path: Path) -> None:
+    ui = tmp_path / "ui"
+    ui.mkdir()
+    (ui / "index.html").write_text('<!doctype html><html lang="en"><head></head><body></body></html>')
+    config = AppConfig(auth_token=TOKEN, media_roots=[tmp_path], data_dir=tmp_path / "data", static_dir=ui)
+    with TestClient(create_app(config)) as client:
+        assert '<html data-theme="light" lang="en">' in client.get("/").text
+        assert client.put("/api/settings", json={"theme": "dark"}, headers=AUTH).status_code == 200
+        page = client.get("/")
+        assert '<html data-theme="dark" lang="en">' in page.text
+        assert page.headers["cache-control"] == "no-cache" and "etag" not in page.headers
+
+
 def test_login_flows_set_a_strict_http_only_cookie(client: TestClient) -> None:
     bad = client.get("/auth", params={"token": "wrong"}, follow_redirects=False)
     assert bad.status_code == 303 and bad.headers["location"] == "/?auth=failed"

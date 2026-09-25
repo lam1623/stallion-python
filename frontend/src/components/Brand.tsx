@@ -33,7 +33,7 @@ export function Logo({ className, size = "md" }: { className?: string; size?: "s
   return (
     <div
       className={cn(
-        "grid shrink-0 place-items-center bg-brand text-white shadow-[0_8px_24px_-10px_var(--accent)] ring-1 ring-white/15 ring-inset",
+        "grid shrink-0 place-items-center bg-brand text-white shadow-[0_8px_24px_-10px_var(--glow)] ring-1 ring-white/15 ring-inset",
         box,
         className,
       )}
