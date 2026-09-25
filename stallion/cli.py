@@ -62,7 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
     convert.add_argument("inputs", nargs="+", type=Path)
     convert.add_argument("-p", "--preset", default="mp4-h264", help="format id (see `stallion presets`)")
     convert.add_argument("-o", "--out-dir", type=Path, help="output folder (default: next to each input)")
-    convert.add_argument("-q", "--quality", type=int, help="CRF or bitrate in kbps, depending on the format")
+    convert.add_argument(
+        "-q",
+        "--quality",
+        type=int,
+        help="CRF, bitrate in kbps, 0-100 or target size in MB, depending on the format",
+    )
     convert.add_argument("--max-height", type=int, help="limit the short side, e.g. 1080 or 720")
     convert.add_argument("--speed", choices=["fast", "balanced", "quality"], default="balanced")
     convert.add_argument("--subtitles", choices=["auto", "none", "soft", "burn"], default="auto")
@@ -145,7 +150,7 @@ def cmd_presets(args: argparse.Namespace) -> int:
         print(f"\n{category.upper()}")
         for view in items:
             flag = "" if view.available else f"  (missing: {', '.join(view.missing_encoders)})"
-            print(f"  {view.id:<12} {view.name['en']:<22} {view.description['en']}{flag}")
+            print(f"  {view.id:<16} {view.name['en']:<24} {view.description['en']}{flag}")
     return 0
 
 

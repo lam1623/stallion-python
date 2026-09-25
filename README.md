@@ -6,8 +6,16 @@ Modern video and audio converter powered by FFmpeg. The same web-based UI runs a
 
 ## Features
 
-- **22 ready-made formats**: MP4 (H.264, H.265/HEVC, AV1), WebM (VP9 + Opus), MKV, a light 720p MP4 for phones, AVI (Xvid), WMV, FLV, MP3, M4A, Opus, FLAC, WAV, DVD/SVCD/VCD (PAL and NTSC) and lossless remuxing to MKV/MP4.
-- **Per-file control**: quality (CRF or bitrate), encoding speed, resolution (never upscales, handles portrait and anamorphic video), audio bitrate, volume and EBU R128 loudness normalization.
+- **34 ready-made formats** in six groups:
+  - **Video**: MP4 (H.264, H.265/HEVC, HEVC 10-bit HDR, AV1), WebM (AV1 or VP9 + Opus), MKV (HEVC 10-bit, H.264).
+  - **Web & social**: YouTube/Vimeo upload, vertical 1080×1920 for Reels/TikTok/Shorts (horizontal videos get a blurred background), WhatsApp/Telegram, *fit a size limit* (e.g. 10 MB for Discord or 25 MB for email), animated GIF and animated WebP.
+  - **Editing**: ProRes 422 HQ, ProRes Proxy and DNxHR HQ for Final Cut, Premiere and DaVinci Resolve.
+  - **Audio**: MP3, M4A (AAC), Opus, FLAC, ALAC (Apple Lossless) and WAV.
+  - **No re-encoding**: lossless remuxing to MKV/MP4.
+  - **Classic**: AVI (Xvid), WMV, FLV and DVD/SVCD/VCD (PAL and NTSC), kept for old players.
+- **HDR aware**: 10-bit formats keep HDR10/HLG; 8-bit formats tone-map HDR to SDR (BT.709) so colors don't look washed out (needs FFmpeg with `zscale`, included in the Docker image).
+- **Target size**: pick a size in MB and Stallion derives the bitrate and a sensible resolution from the duration, accounting for container overhead. In tests, files landed at 93–96 % of the limit.
+- **Per-file control**: quality (CRF, bitrate or 0–100), encoding speed, resolution (never upscales, handles portrait and anamorphic video), audio bitrate, volume and EBU R128 loudness normalization.
 - **Audio tracks**: pick the language you want; remuxing keeps every track.
 - **Subtitles**: burn them in or embed them as a track, from embedded tracks (text or PGS/VobSub images) or external `.srt/.ass/.ssa/.vtt` files. A matching `.srt` next to the video is picked up automatically, Windows-1252 files are detected, and a style editor shows a live preview.
 - **Queue**: parallel conversions, pause/resume/cancel/retry, live progress with speed and ETA, thumbnails, batch editing, and the exact `ffmpeg` command for every job.
@@ -47,6 +55,9 @@ The container runs as an unprivileged user, ships FFmpeg and subtitle fonts, and
 stallion presets                                    # list format ids
 stallion convert *.mkv -p mp4-h265 -o converted/ --max-height 1080 -j 2
 stallion convert talk.mp4 -p mp3 --subtitles none
+stallion convert clip.mov -p share-size -q 25                   # fit in 25 MB
+stallion convert trip.mp4 -p social-vertical                    # 1080×1920 for Reels/TikTok
+stallion convert hdr.mov -p mp4-hevc-10bit                      # keep HDR
 stallion serve --host 0.0.0.0 --media-root /srv/videos
 ```
 

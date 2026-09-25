@@ -15,7 +15,8 @@ POPEN_KWARGS: dict[str, Any] = {"creationflags": 0x08000000} if sys.platform == 
 
 _VERSION_RE = re.compile(r"ffmpeg version (\S+)")
 _ENCODER_RE = re.compile(r"^\s*[VAS][A-Z.]{5}\s+(\S+)")
-_FILTER_RE = re.compile(r"^\s*[T.][S.][C.]\s+(\S+)\s+\S+->\S+")
+# Flag columns: "TSC" up to FFmpeg 7, "TS" since FFmpeg 8 (command support was dropped)
+_FILTER_RE = re.compile(r"^\s*[T.][S.][C.]?\s+(\S+)\s+\S+->\S+")
 
 
 class FFmpegNotFoundError(RuntimeError):

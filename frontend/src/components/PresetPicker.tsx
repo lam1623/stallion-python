@@ -1,6 +1,7 @@
 import { Check, LayoutGrid, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { localized, useLang, useT } from "@/lib/i18n";
+import { needsVideo } from "@/lib/presets";
 import { useStore } from "@/lib/store";
 import type { Preset, PresetCategory } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -147,8 +148,8 @@ export function PresetPicker({
               <SectionTitle className="mb-2">{t(CATEGORIES[cat].label)}</SectionTitle>
               <div className="grid gap-2 md:grid-cols-2">
                 {items.map((preset) => {
-                  const needsVideo = audioOnly && preset.category === "disc";
-                  const disabled = !preset.available || needsVideo;
+                  const videoMissing = audioOnly && needsVideo(preset);
+                  const disabled = !preset.available || videoMissing;
                   return (
                     <PresetCard
                       key={preset.id}
@@ -158,7 +159,7 @@ export function PresetPicker({
                       note={
                         !preset.available
                           ? t("picker.unavailable", { encoders: preset.missing_encoders.join(", ") })
-                          : needsVideo
+                          : videoMissing
                             ? t("errors.needs_video")
                             : undefined
                       }

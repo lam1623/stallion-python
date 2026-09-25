@@ -18,6 +18,25 @@ MKV_COPYABLE_SUBTITLES = frozenset(
 )
 LOSSLESS_AUDIO = frozenset({"flac", "pcm_s16le", "pcm_s24le", "alac"})
 LOUDNORM = "loudnorm=I=-16:TP=-1.5:LRA=11"
+# HDR (PQ/HLG) to SDR BT.709 with a filmic curve; needs the zscale filter (libzimg).
+# A final format=<8-bit pix_fmt> is appended per preset.
+TONEMAP_FILTERS = (
+    "zscale=t=linear:npl=100",
+    "format=gbrpf32le",
+    "zscale=p=bt709",
+    "tonemap=tonemap=hable:desat=0",
+    "zscale=t=bt709:m=bt709:r=tv",
+)
+# Per-frame palettes keep GIF quality high without buffering the whole clip in memory
+GIF_PALETTE = (
+    "[{inp}]split[{out}a][{out}b];[{out}a]palettegen=stats_mode=single[{out}p];"
+    "[{out}b][{out}p]paletteuse=new=1:dither=bayer:bayer_scale=4[{out}]"
+)
+# Headroom for rate-control drift when targeting a file size
+SIZE_MARGIN = 0.96
+# Container index cost per audio/video frame (MP4 sample tables, Matroska block headers)
+FRAME_OVERHEAD_BITS = 112
+AAC_FRAMES_PER_S = 47
 SPEED_ARGS: dict[str, dict[str, list[str]]] = {
     "x26x": {
         "fast": ["-preset", "veryfast"],
@@ -139,16 +158,61 @@ def square_pixel_size(video: VideoStream) -> tuple[int, int]:
     return width, height
 
 
-def scale_limits(preset: Preset, options: JobOptions) -> tuple[int | None, tuple[int, int] | None]:
+def scale_limits(
+    preset: Preset, options: JobOptions, auto_short_side: int | None = None
+) -> tuple[int | None, tuple[int, int] | None]:
     """Return (short-side limit, device bounding box) for this preset/options pair."""
 
     spec = preset.video
     if spec is None or preset.fixed_resolution or preset.remux:
         return None, None
     box = (spec.max_width, spec.max_height) if spec.max_width and spec.max_height else None
-    default_short = spec.max_height if box is None else None
+    default_short = auto_short_side or (spec.max_height if box is None else None)
     short = default_short if options.max_height is None else (options.max_height or None)
     return short, box
+
+
+def size_budget(
+    duration_s: float, target_mb: int, audio_kbps: int | None, fps: float | None = None
+) -> tuple[int, int | None]:
+    """Video and audio kbps that make ``duration_s`` of media fit in ``target_mb`` (decimal MB)."""
+
+    total = target_mb * 8000 * SIZE_MARGIN / duration_s
+    # The container overhead grows with the frame count, which matters at low bitrates
+    frames_per_s = (fps or 30) + (AAC_FRAMES_PER_S if audio_kbps else 0)
+    total -= frames_per_s * FRAME_OVERHEAD_BITS / 1000
+    audio = audio_kbps
+    if audio and total < audio * 3:
+        audio = max(32, int(total * 0.25))
+    return max(40, int(total - (audio or 0))), audio
+
+
+def size_rates(media: MediaInfo, preset: Preset, options: JobOptions) -> tuple[int | None, int | None]:
+    """(video kbps, audio kbps) for presets that target a file size, else (None, None)."""
+
+    spec = preset.video
+    if spec is None or spec.rate_control != "size" or media.duration_s <= 0:
+        return None, None
+    target_mb = resolve_quality(spec, options) or 10
+    audio_kbps = options.audio_bitrate_kbps or (preset.audio.bitrate_kbps if preset.audio else None)
+    if not media.audio:
+        audio_kbps = None
+    if media.video is None:
+        # Audio-only input: shrink the audio bitrate instead
+        if audio_kbps is None:
+            return None, None
+        budget = int(target_mb * 8000 * SIZE_MARGIN / media.duration_s)
+        return None, max(32, min(audio_kbps, budget))
+    return size_budget(media.duration_s, target_mb, audio_kbps, media.video.fps)
+
+
+def auto_short_side(video_kbps: int) -> int | None:
+    """Resolution that still looks sharp at this bitrate (None keeps the source size)."""
+
+    for limit, side in ((350, 360), (700, 480), (1500, 720), (4000, 1080)):
+        if video_kbps < limit:
+            return side
+    return None
 
 
 def compute_scale(
@@ -213,8 +277,18 @@ def validate_options(media: MediaInfo, preset: Preset, options: JobOptions) -> N
     has_video = media.video is not None
     if preset.video is None and not media.audio:
         raise OptionsError("needs_audio", "This file has no audio track to convert")
-    if preset.target and not has_video:
-        raise OptionsError("needs_video", "Disc formats need a video track")
+    needs_video = preset.target or preset.layout or preset.animation or preset.audio is None
+    if needs_video and not has_video:
+        raise OptionsError("needs_video", "This format needs a video track")
+    if preset.video and preset.video.rate_control == "size" and has_video and media.duration_s <= 0:
+        raise OptionsError("needs_duration", "The duration is unknown, so the file size cannot be targeted")
+    spec = preset.video
+    if spec is not None and spec.min_frame and media.video is not None:
+        min_w, min_h = spec.min_frame
+        size = compute_scale(media.video, *scale_limits(preset, options))
+        width, height = size or square_pixel_size(media.video)
+        if width < min_w or height < min_h:
+            raise OptionsError("too_small", f"This format needs a picture of at least {min_w}×{min_h}")
     if preset.remux:
         if options.max_height:
             raise OptionsError("remux_filters", "Changing the resolution needs re-encoding")
@@ -247,7 +321,7 @@ def validate_options(media: MediaInfo, preset: Preset, options: JobOptions) -> N
         raise OptionsError("bitmap_soft", "Image subtitles (PGS/VobSub) can only be burned or kept in MKV")
 
 
-def _video_codec_args(preset: Preset, options: JobOptions) -> list[str]:
+def _video_codec_args(preset: Preset, options: JobOptions, size_kbps: int | None) -> list[str]:
     spec = preset.video
     if spec is None or preset.target:
         return []
@@ -262,8 +336,18 @@ def _video_codec_args(preset: Preset, options: JobOptions) -> list[str]:
                 args += ["-b:v", "0"]
         elif spec.rate_control == "bitrate":
             args += ["-b:v", f"{quality}k"]
-        elif spec.rate_control == "qscale":
+        elif spec.rate_control == "quality":
             args += ["-q:v", str(quality)]
+        elif spec.rate_control == "size" and size_kbps:
+            # Average bitrate with a VBV cap lands within a few percent of the target size
+            args += [
+                "-b:v",
+                f"{size_kbps}k",
+                "-maxrate",
+                f"{size_kbps * 3 // 2}k",
+                "-bufsize",
+                f"{size_kbps * 2}k",
+            ]
     if spec.speed_family:
         args += SPEED_ARGS[spec.speed_family][options.speed]
     if spec.pix_fmt:
@@ -271,14 +355,16 @@ def _video_codec_args(preset: Preset, options: JobOptions) -> list[str]:
     return args + spec.args
 
 
-def _audio_codec_args(preset: Preset, options: JobOptions, source_rate: int | None) -> list[str]:
+def _audio_codec_args(
+    preset: Preset, options: JobOptions, source_rate: int | None, bitrate_override: int | None = None
+) -> list[str]:
     spec = preset.audio
     if spec is None or preset.target:
         return []
     if spec.codec == "copy":
         return ["-c:a", "copy"]
     args = ["-c:a", spec.codec]
-    bitrate = options.audio_bitrate_kbps or spec.bitrate_kbps
+    bitrate = bitrate_override or options.audio_bitrate_kbps or spec.bitrate_kbps
     if bitrate and spec.codec not in LOSSLESS_AUDIO:
         args += ["-b:a", f"{bitrate}k"]
     if spec.channels:
@@ -309,6 +395,67 @@ def _disc_aspect(video: VideoStream, preset: Preset) -> str:
     return "16:9" if preset.widescreen and video.aspect >= 1.5 else "4:3"
 
 
+def _blur_fill(width: int, height: int) -> str:
+    """Fit the picture inside width x height over a blurred, zoomed copy of itself."""
+
+    small_w, small_h = _even(width / 4), _even(height / 4)
+    return (
+        "[{inp}]split[{out}bg][{out}fg];"
+        f"[{{out}}bg]scale={small_w}:{small_h}:force_original_aspect_ratio=increase,crop={small_w}:{small_h},"
+        f"gblur=sigma=12,scale={width}:{height},setsar=1[{{out}}b];"
+        f"[{{out}}fg]scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,"
+        "setsar=1[{out}f];[{out}b][{out}f]overlay=(W-w)/2:(H-h)/2[{out}]"
+    )
+
+
+class _VideoGraph:
+    """Video filters: a plain ``-vf`` chain when linear, ``-filter_complex`` once branching is needed."""
+
+    def __init__(self, source: str) -> None:
+        self._source = source
+        self._label = source
+        self._pending: list[str] = []
+        self._segments: list[str] = []
+        self._count = 0
+
+    def add(self, *filters: str) -> None:
+        self._pending.extend(filters)
+
+    def _next_label(self) -> str:
+        self._count += 1
+        return f"v{self._count}"
+
+    def _flush(self) -> None:
+        if self._pending:
+            out = self._next_label()
+            self._segments.append(f"[{self._label}]{','.join(self._pending)}[{out}]")
+            self._label, self._pending = out, []
+
+    def overlay(self, stream: str) -> None:
+        self._flush()
+        out = self._next_label()
+        self._segments.append(f"[{self._label}][{stream}]overlay=eof_action=pass[{out}]")
+        self._label = out
+
+    def raw(self, template: str) -> None:
+        """Append a sub-graph written with ``{inp}``/``{out}`` label placeholders."""
+
+        self._flush()
+        out = self._next_label()
+        self._segments.append(template.format(inp=self._label, out=out))
+        self._label = out
+
+    def finish(self) -> tuple[list[str], list[str], str]:
+        """Return (global args, output args, stream to map)."""
+
+        if not self._segments:
+            return [], (["-vf", ",".join(self._pending)] if self._pending else []), self._source
+        self._flush()
+        last = self._segments[-1]
+        self._segments[-1] = last[: last.rindex("[")] + "[vout]"
+        return ["-filter_complex", ";".join(self._segments)], [], "[vout]"
+
+
 def build_command(
     *,
     ffmpeg: str,
@@ -318,8 +465,12 @@ def build_command(
     output: str | Path,
     overwrite: bool = False,
     subtitle_charenc: str | None = None,
+    can_tonemap: bool = False,
 ) -> list[str]:
-    """Build the full ffmpeg argv. Raises :class:`OptionsError` for invalid combinations."""
+    """Build the full ffmpeg argv. Raises :class:`OptionsError` for invalid combinations.
+
+    ``can_tonemap`` tells whether this ffmpeg has ``zscale`` to turn HDR into SDR for 8-bit formats.
+    """
 
     validate_options(media, preset, options)
 
@@ -341,37 +492,42 @@ def build_command(
         out += ["-target", preset.target]
 
     video = media.video if preset.video is not None else None
-    if video is not None:
-        vfilters: list[str] = []
-        overlay_source: str | None = None
+    size_video, size_audio = size_rates(media, preset, options)
+
+    if video is not None and preset.video is not None:
+        spec = preset.video
+        graph = _VideoGraph(f"0:{video.index}")
+        if video.hdr and not preset.keeps_hdr and can_tonemap:
+            graph.add(*TONEMAP_FILTERS, f"format={spec.pix_fmt or 'yuv420p'}")
+        if spec.fps and (video.fps is None or video.fps > spec.fps + 0.01):
+            graph.add(f"fps={spec.fps}")
         if mode == "burn":
             if embedded_sub is not None and embedded_sub.bitmap:
-                overlay_source = f"[0:{embedded_sub.index}]"
+                graph.overlay(f"0:{embedded_sub.index}")
             elif embedded_sub is not None:
                 style = None if embedded_sub.codec in ASS_SUBTITLE_CODECS else options.subtitle_style
-                vfilters.append(subtitles_filter(source, stream_position=embedded_sub.position, style=style))
+                graph.add(subtitles_filter(source, stream_position=embedded_sub.position, style=style))
             elif external_sub:
                 is_ass = Path(external_sub).suffix.lower() in (".ass", ".ssa")
                 style = None if is_ass else options.subtitle_style
-                vfilters.append(subtitles_filter(external_sub, style=style, charenc=subtitle_charenc))
+                graph.add(subtitles_filter(external_sub, style=style, charenc=subtitle_charenc))
         if preset.target:
-            vfilters += _disc_video_filters(video, preset)
+            graph.add(*_disc_video_filters(video, preset))
+        elif preset.layout == "blur_fill" and preset.frame_size:
+            graph.raw(_blur_fill(*preset.frame_size))
         else:
-            size = compute_scale(video, *scale_limits(preset, options))
+            auto = auto_short_side(size_video) if size_video else None
+            size = compute_scale(video, *scale_limits(preset, options, auto))
             if size:
-                vfilters.append(f"scale={size[0]}:{size[1]},setsar=1")
+                graph.add(f"scale={size[0]}:{size[1]},setsar=1")
+        if preset.animation == "gif":
+            graph.raw(GIF_PALETTE)
 
-        if overlay_source:
-            graph = f"[0:{video.index}]{overlay_source}overlay=eof_action=pass"
-            if vfilters:
-                graph += "," + ",".join(vfilters)
-            argv += ["-filter_complex", graph + "[vout]"]
-            maps.append("[vout]")
-        else:
-            maps.append(f"0:{video.index}")
-            if vfilters:
-                out += ["-vf", ",".join(vfilters)]
-        out += _video_codec_args(preset, options)
+        global_args, filter_args, video_map = graph.finish()
+        argv += global_args
+        maps.append(video_map)
+        out += filter_args
+        out += _video_codec_args(preset, options, size_video)
         if preset.target:
             out += ["-aspect", _disc_aspect(video, preset)]
 
@@ -391,7 +547,7 @@ def build_command(
             afilters.append(f"volume={options.volume_db:g}dB")
         if afilters:
             out += ["-af", ",".join(afilters)]
-        out += _audio_codec_args(preset, options, tracks[0].sample_rate)
+        out += _audio_codec_args(preset, options, tracks[0].sample_rate, size_audio)
 
     if preset.remux and preset.soft_subtitles == "copy":
         # Remuxing to MKV keeps every subtitle track plus attachments such as fonts

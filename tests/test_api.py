@@ -108,7 +108,7 @@ def test_settings_validation_and_persistence(client: TestClient, tmp_path: Path)
 
 def test_presets_and_fonts(client: TestClient) -> None:
     presets = client.get("/api/presets", headers=AUTH).json()
-    assert len(presets) == 22 and all("available" in p for p in presets)
+    assert len(presets) == 34 and all("available" in p for p in presets)
     assert presets[0]["category"] == "video"
     assert isinstance(client.get("/api/fonts", headers=AUTH).json(), list)
 

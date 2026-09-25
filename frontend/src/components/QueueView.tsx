@@ -226,8 +226,11 @@ function QueueFooter() {
   );
 }
 
+const EMPTY_BADGES = ["MP4", "AV1", "HEVC HDR", "WebM", "Reels · TikTok", "GIF", "WebP", "ProRes", "MP3", "FLAC"];
+
 function EmptyState() {
   const t = useT();
+  const formatCount = useStore((s) => s.presets.length);
   const [before, after] = t("empty.shortcut", { keys: "§" }).split("§");
   return (
     <div className="flex flex-1 items-center justify-center overflow-y-auto p-8">
@@ -240,7 +243,9 @@ function EmptyState() {
           <FilePlus2 className="size-7" />
         </div>
         <h2 className="relative text-2xl font-semibold tracking-tight text-fg">{t("empty.title")}</h2>
-        <p className="relative mx-auto mt-3 max-w-md text-[15px] leading-relaxed text-muted">{t("empty.body")}</p>
+        <p className="relative mx-auto mt-3 max-w-md text-[15px] leading-relaxed text-muted">
+          {t("empty.body", { count: formatCount || "30+" })}
+        </p>
         <div className="relative mt-8 flex flex-wrap items-center justify-center gap-3">
           <Button variant="primary" size="lg" onClick={() => void addFiles()}>
             <Plus />
@@ -252,7 +257,7 @@ function EmptyState() {
           </Button>
         </div>
         <div className="relative mt-9 flex flex-wrap justify-center gap-1.5">
-          {["MP4", "H.265", "AV1", "WebM", "MKV", "AVI", "MP3", "FLAC", "Opus", "DVD"].map((format) => (
+          {EMPTY_BADGES.map((format) => (
             <Badge key={format}>{format}</Badge>
           ))}
         </div>

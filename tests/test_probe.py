@@ -95,6 +95,10 @@ def test_capability_parsers() -> None:
     encoders = parse_encoders(" V..... = Video\n ------\n V....D libx264   H.264\n A....D aac   AAC\n")
     filters = parse_filters(" ... loudnorm   A->A  EBU\n TSC overlay   VV->V  Overlay\n")
     assert encoders == {"libx264", "aac"} and filters == {"loudnorm", "overlay"}
+    # FFmpeg 8 prints two flag columns and a separator; the legend must not match
+    ffmpeg8 = "Filters:\n  T.. = Timeline support\n  | = Source or sink filter\n  ------\n"
+    ffmpeg8 += " TS zscale            V->V       Apply resizing.\n .. anullsrc          |->A       Null audio source.\n"
+    assert parse_filters(ffmpeg8) == {"zscale", "anullsrc"}
 
 
 @requires_ffmpeg

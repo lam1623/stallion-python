@@ -410,6 +410,7 @@ class JobManager:
             output=output,
             overwrite=self.settings.current.overwrite,
             subtitle_charenc=charenc,
+            can_tonemap=ffmpeg.has_filter("zscale"),
         )
 
     @staticmethod
@@ -499,6 +500,7 @@ class JobManager:
                 output=output,
                 overwrite=settings.overwrite,
                 subtitle_charenc=self._subtitle_charenc(job.options),
+                can_tonemap=ffmpeg.has_filter("zscale"),
             )
         except (OptionsError, PathError, ManagerError) as exc:
             self._release(output)

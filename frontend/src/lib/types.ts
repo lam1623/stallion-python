@@ -3,7 +3,7 @@
 export type JobStatus = "queued" | "running" | "paused" | "completed" | "failed" | "canceled";
 export type SubtitleMode = "none" | "soft" | "burn";
 export type Speed = "fast" | "balanced" | "quality";
-export type PresetCategory = "video" | "device" | "audio" | "disc" | "remux";
+export type PresetCategory = "video" | "social" | "editing" | "audio" | "remux" | "legacy";
 export type Localized = Record<string, string>;
 
 export interface SubtitleStyle {
@@ -120,16 +120,22 @@ export interface QueueState {
   counts: Record<JobStatus, number>;
 }
 
+// crf: lower is better · bitrate: kb/s · quality: 0-100, higher is better · size: target size in MB
+export type RateControl = "crf" | "bitrate" | "quality" | "size" | "none";
+
 export interface VideoSpec {
   codec: string;
-  rate_control: "crf" | "bitrate" | "qscale" | "none";
+  rate_control: RateControl;
   quality: number | null;
   quality_min: number | null;
   quality_max: number | null;
+  quality_choices: number[];
   speed_family: "x26x" | "svtav1" | "vpx" | null;
   pix_fmt: string | null;
   max_height: number | null;
   max_width: number | null;
+  fps: number | null;
+  min_frame: [number, number] | null;
 }
 
 export interface AudioSpec {
@@ -154,6 +160,9 @@ export interface Preset {
   soft_subtitles: "mov_text" | "webvtt" | "copy" | null;
   soft_bitmap_subtitles: boolean;
   fixed_resolution: boolean;
+  frame: string | null;
+  layout: "blur_fill" | null;
+  animation: "gif" | null;
   tags: string[];
   available: boolean;
   missing_encoders: string[];
@@ -184,7 +193,13 @@ export interface SystemInfo {
   pause_supported: boolean;
   data_dir: string;
   roots: Root[];
-  ffmpeg: { available: boolean; version: string | null; path: string | null; error: string | null };
+  ffmpeg: {
+    available: boolean;
+    version: string | null;
+    path: string | null;
+    error: string | null;
+    can_tonemap: boolean;
+  };
 }
 
 export type EntryKind = "dir" | "video" | "audio" | "subtitle" | "file";
