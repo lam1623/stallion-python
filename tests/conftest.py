@@ -217,3 +217,30 @@ def long_video(tmp_path_factory: pytest.TempPathFactory) -> Path:
         str(path),
     )
     return path
+
+
+@pytest.fixture(scope="session")
+def hdr_clip(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """10-bit video tagged as HDR10 (PQ transfer, BT.2020 primaries)."""
+
+    if not HAS_FFMPEG:
+        pytest.skip("ffmpeg/ffprobe not installed")
+    path = tmp_path_factory.mktemp("hdr") / "hdr.mkv"
+    _ff(
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=640x360:rate=25:duration=1",
+        "-c:v",
+        "ffv1",
+        "-pix_fmt",
+        "yuv420p10le",
+        "-color_primaries",
+        "bt2020",
+        "-color_trc",
+        "smpte2084",
+        "-colorspace",
+        "bt2020nc",
+        str(path),
+    )
+    return path

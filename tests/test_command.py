@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from stallion.engine.command import (
+    TONEMAP_FILTERS,
     OptionsError,
     build_command,
     compute_scale,
@@ -44,14 +45,30 @@ def media(**overrides: object) -> MediaInfo:
     return MediaInfo.model_validate(base)
 
 
-def argv(preset_id: str = "mp4-h264", info: MediaInfo | None = None, **opts: object) -> list[str]:
+def argv(
+    preset_id: str = "mp4-h264", info: MediaInfo | None = None, *, can_tonemap: bool = False, **opts: object
+) -> list[str]:
     return build_command(
         ffmpeg="ffmpeg",
         media=info or media(),
         preset=CATALOG.get(preset_id),
         options=JobOptions(preset_id=preset_id, **opts),  # type: ignore[arg-type]
         output="/out/x" + CATALOG.get(preset_id).extension,
+        can_tonemap=can_tonemap,
     )
+
+
+def video(**overrides: object) -> VideoStream:
+    base: dict[str, object] = {
+        "index": 0,
+        "codec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "display_aspect": 16 / 9,
+        "fps": 30,
+    }
+    base.update(overrides)
+    return VideoStream.model_validate(base)
 
 
 def value_after(args: list[str], flag: str) -> str:
@@ -192,7 +209,7 @@ def test_burn_embedded_ass_keeps_original_styling() -> None:
 def test_burn_bitmap_subtitles_uses_overlay() -> None:
     args = argv(subtitle_mode="burn", subtitle_track=1, max_height=720)
     graph = value_after(args, "-filter_complex")
-    assert graph == "[0:0][0:4]overlay=eof_action=pass,scale=1280:720,setsar=1[vout]"
+    assert graph == "[0:0][0:4]overlay=eof_action=pass[v1];[v1]scale=1280:720,setsar=1[vout]"
     assert maps(args)[0] == "[vout]" and "-vf" not in args
 
 
@@ -229,6 +246,8 @@ def test_soft_external_subtitle_is_a_second_input() -> None:
         ("mp4-h264", {"audio_track": 5}, "bad_audio_track"),
         ("mp4-h264", {"subtitle_mode": "burn", "subtitle_file": "/x/readme.txt"}, "bad_subtitle_file"),
         ("mp3", {"subtitle_mode": "burn", "subtitle_track": 0}, "cannot_burn"),
+        ("gif", {"subtitle_mode": "soft", "subtitle_track": 0}, "no_soft_subtitles"),
+        ("dnxhr-hq", {"max_height": 100}, "too_small"),
     ],
 )
 def test_invalid_combinations_are_rejected(preset_id: str, options: dict[str, object], code: str) -> None:
@@ -243,6 +262,10 @@ def test_media_without_needed_streams() -> None:
         argv("mp3", silent)
     with pytest.raises(OptionsError, match="video"):
         argv("dvd-pal", media(video=None))
+    for preset_id in ("gif", "webp-anim", "social-vertical"):
+        with pytest.raises(OptionsError) as err:
+            argv(preset_id, media(video=None))
+        assert err.value.code == "needs_video"
 
 
 # --------------------------------------------------------------------------- disc & remux
@@ -266,6 +289,118 @@ def test_remux_mkv_keeps_every_track() -> None:
     assert maps(args) == ["0:0", "0:1", "0:2", "0:3", "0:4", "0:5", "0:6", "0:t?"]
     assert value_after(args, "-c:v") == "copy" and value_after(args, "-c:a") == "copy"
     assert value_after(args, "-c:s:3") == "srt"
+
+
+# --------------------------------------------------------------------------- modern formats
+
+
+def test_size_target_picks_bitrate_and_resolution() -> None:
+    # 10 MB for 60 s: 1280 kbps minus container overhead, 96 for audio, the rest for 720p video
+    args = argv("share-size")
+    assert value_after(args, "-b:v") == "1175k"
+    assert value_after(args, "-maxrate") == "1762k" and value_after(args, "-bufsize") == "2350k"
+    assert value_after(args, "-b:a") == "96k"
+    assert value_after(args, "-vf") == "scale=1280:720,setsar=1"
+    assert "-crf" not in args
+    # A generous budget keeps the source resolution, an explicit choice always wins
+    assert "-vf" not in argv("share-size", quality=100)
+    assert value_after(argv("share-size", max_height=480), "-vf") == "scale=854:480,setsar=1"
+
+
+def test_size_target_shrinks_audio_on_tight_budgets() -> None:
+    args = argv("share-size", media(duration_s=600), quality=8)
+    assert value_after(args, "-b:a") == "32k" and value_after(args, "-b:v") == "61k"
+    assert value_after(args, "-vf") == "scale=640:360,setsar=1"
+    podcast = argv("share-size", media(video=None, duration_s=3600))
+    assert maps(podcast) == ["0:2"] and value_after(podcast, "-b:a") == "32k" and "-c:v" not in podcast
+
+
+def test_size_target_needs_a_duration() -> None:
+    with pytest.raises(OptionsError) as err:
+        argv("share-size", media(duration_s=0))
+    assert err.value.code == "needs_duration"
+
+
+def test_vertical_layout_blurs_the_background() -> None:
+    args = argv("social-vertical", media(video=video()))
+    assert value_after(args, "-filter_complex") == (
+        "[0:0]split[v1bg][v1fg];"
+        "[v1bg]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,"
+        "gblur=sigma=12,scale=1080:1920,setsar=1[v1b];"
+        "[v1fg]scale=1080:1920:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1[v1f];"
+        "[v1b][v1f]overlay=(W-w)/2:(H-h)/2[vout]"
+    )
+    assert maps(args) == ["[vout]", "0:2"] and "-vf" not in args
+    assert value_after(args, "-ar") == "48000"
+
+
+def test_frame_rate_is_capped_not_raised() -> None:
+    fast = argv("social-vertical", media(video=video(fps=120)))
+    assert value_after(fast, "-filter_complex").startswith("[0:0]fps=60[v1];[v1]split")
+    assert "fps=" not in value_after(
+        argv("social-vertical", media(video=video(fps=59.94))), "-filter_complex"
+    )
+
+
+def test_gif_uses_per_frame_palettes_and_no_audio() -> None:
+    args = argv("gif", media(video=video()))
+    assert value_after(args, "-filter_complex") == (
+        "[0:0]fps=12,scale=640:360,setsar=1[v1];"
+        "[v1]split[v2a][v2b];[v2a]palettegen=stats_mode=single[v2p];"
+        "[v2b][v2p]paletteuse=new=1:dither=bayer:bayer_scale=4[vout]"
+    )
+    assert maps(args) == ["[vout]"] and "-c:a" not in args
+    assert value_after(args, "-f") == "gif" and value_after(args, "-loop") == "0"
+
+
+def test_animated_webp_quality_is_clamped() -> None:
+    args = argv("webp-anim", media(video=video()), quality=90)
+    assert value_after(args, "-c:v") == "libwebp_anim" and value_after(args, "-q:v") == "90"
+    assert value_after(args, "-vf") == "fps=15,scale=854:480,setsar=1"
+    assert maps(args) == ["0:0"] and value_after(args, "-loop") == "0"
+    assert value_after(argv("webp-anim", quality=5), "-q:v") == "40"
+
+
+def test_hdr_is_tone_mapped_only_for_8_bit_formats() -> None:
+    hdr = media(video=video(hdr=True, pix_fmt="yuv420p10le"))
+    tonemap = ",".join(TONEMAP_FILTERS)
+    assert value_after(argv("mp4-h264", hdr, can_tonemap=True), "-vf") == f"{tonemap},format=yuv420p"
+    assert value_after(argv("dnxhr-hq", hdr, can_tonemap=True), "-vf") == f"{tonemap},format=yuv422p"
+    # 10-bit formats and remuxing keep HDR; without zscale the picture is left alone
+    for preset_id in ("mp4-hevc-10bit", "mkv-hevc", "prores-hq", "remux-mkv"):
+        assert "-vf" not in argv(preset_id, hdr, can_tonemap=True)
+    assert "-vf" not in argv("mp4-h264", hdr)
+    assert "-vf" not in argv("mp4-h264", can_tonemap=True)
+    # Subtitles are drawn after tone mapping so their colors stay right
+    burned = value_after(
+        argv("mp4-h264", hdr, can_tonemap=True, subtitle_mode="burn", subtitle_track=0), "-vf"
+    )
+    assert burned.index("format=yuv420p") < burned.index("subtitles=")
+
+
+def test_editing_and_lossless_formats() -> None:
+    prores = argv("prores-hq")
+    assert value_after(prores, "-c:v") == "prores_ks" and value_after(prores, "-profile:v") == "3"
+    assert value_after(prores, "-pix_fmt") == "yuv422p10le" and value_after(prores, "-c:a") == "pcm_s24le"
+    assert value_after(prores, "-f") == "mov" and "-crf" not in prores and "-b:a" not in prores
+    dnxhr = argv("dnxhr-hq")
+    assert value_after(dnxhr, "-profile:v") == "dnxhr_hq" and value_after(dnxhr, "-pix_fmt") == "yuv422p"
+    with pytest.raises(OptionsError) as err:
+        argv("dnxhr-hq", media(video=video(width=200, height=112)))
+    assert err.value.code == "too_small"
+    alac = argv("alac", audio_bitrate_kbps=320)
+    assert value_after(alac, "-c:a") == "alac" and value_after(alac, "-f") == "ipod" and "-b:a" not in alac
+
+
+def test_catalog_metadata() -> None:
+    assert CATALOG.get("social-vertical").frame_size == (1080, 1920)
+    assert CATALOG.get("mp4-hevc-10bit").keeps_hdr and CATALOG.get("remux-mp4").keeps_hdr
+    assert not CATALOG.get("mp4-h264").keeps_hdr and not CATALOG.get("gif").keeps_hdr
+    for preset in CATALOG:
+        if preset.target:
+            assert preset.frame_size, preset.id
+        if preset.video and preset.video.quality is not None and preset.video.quality_min is not None:
+            assert preset.video.quality_min <= preset.video.quality <= (preset.video.quality_max or 10**9)
 
 
 # --------------------------------------------------------------------------- paths

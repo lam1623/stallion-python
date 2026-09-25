@@ -67,6 +67,8 @@ async def system_info(ctx: AppContext = Depends(get_ctx)) -> dict[str, Any]:
             "version": ff.version if ff else None,
             "path": ff.ffmpeg if ff else None,
             "error": ctx.ffmpeg_error,
+            # HDR sources are tone-mapped to SDR for 8-bit formats only when zscale exists
+            "can_tonemap": bool(ff and ff.has_filter("zscale")),
         },
     }
 

@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { pickPaths, updateOptions } from "@/lib/actions";
 import { basename, displaySize } from "@/lib/format";
 import { localized, type Translator, useLang, useT } from "@/lib/i18n";
+import { frameLabel, keepsHdr, type SizePlan, sizePlan } from "@/lib/presets";
 import { useStore } from "@/lib/store";
 import type { Job, JobOptions, Preset, Speed } from "@/lib/types";
 import { PresetIcon } from "../Brand";
@@ -11,15 +12,9 @@ import { Button } from "../ui/button";
 import { Select, Segmented, Slider, Switch } from "../ui/controls";
 import { Badge, Field, SectionTitle } from "../ui/misc";
 
-const DISC_SIZES: Record<string, string> = {
-  "pal-dvd": "720×576",
-  "ntsc-dvd": "720×480",
-  "pal-svcd": "480×576",
-  "ntsc-svcd": "480×480",
-  "pal-vcd": "352×288",
-  "ntsc-vcd": "352×240",
-};
 const HEIGHTS = [2160, 1440, 1080, 720, 480, 360];
+// Below this video bitrate a size target gives visibly poor quality
+const LOW_SIZE_KBPS = 150;
 
 export function Note({ children }: { children: ReactNode }) {
   return (
@@ -55,8 +50,11 @@ export function presetPatch(job: Job, preset: Preset): Partial<JobOptions> {
 }
 
 function qualityLabel(spec: NonNullable<Preset["video"]>, value: number, t: Translator): string {
-  if (spec.rate_control !== "crf" || spec.quality_min == null || spec.quality_max == null) return "";
-  const score = (spec.quality_max - value) / (spec.quality_max - spec.quality_min);
+  if (spec.quality_min == null || spec.quality_max == null) return "";
+  if (spec.rate_control !== "crf" && spec.rate_control !== "quality") return "";
+  const span = spec.quality_max - spec.quality_min || 1;
+  // CRF: lower is better · quality (WebP): higher is better
+  const score = spec.rate_control === "crf" ? (spec.quality_max - value) / span : (value - spec.quality_min) / span;
   if (score > 0.85) return t("opt.q.max");
   if (score > 0.6) return t("opt.q.high");
   if (score > 0.35) return t("opt.q.balanced");
@@ -76,6 +74,7 @@ function QualityField({ preset, options, onCommit, disabled }: {
   const max = spec.quality_max ?? 51;
   const actual = options.quality ?? spec.quality ?? min;
   const crf = spec.rate_control === "crf";
+  const bitrate = spec.rate_control === "bitrate";
   // CRF: lower is better, so the slider is mirrored to keep "better" on the right
   const toSlider = (value: number) => (crf ? min + max - value : value);
   const [position, setPosition] = useState(toSlider(actual));
@@ -84,14 +83,14 @@ function QualityField({ preset, options, onCommit, disabled }: {
 
   return (
     <Field
-      label={crf ? t("opt.quality") : t("opt.bitrate")}
+      label={bitrate ? t("opt.bitrate") : t("opt.quality")}
       aside={
-        crf ? (
-          <span>
-            {qualityLabel(spec, value, t)} <span className="text-subtle">· CRF {value}</span>
-          </span>
-        ) : (
+        bitrate ? (
           `${value.toLocaleString(lang)} kb/s`
+        ) : (
+          <span>
+            {qualityLabel(spec, value, t)} <span className="text-subtle">· {crf ? `CRF ${value}` : value}</span>
+          </span>
         )
       }
     >
@@ -99,7 +98,7 @@ function QualityField({ preset, options, onCommit, disabled }: {
         aria-label={t("opt.quality")}
         min={min}
         max={max}
-        step={crf ? 1 : 100}
+        step={bitrate ? 100 : 1}
         value={position}
         disabled={disabled}
         onValueChange={setPosition}
@@ -109,6 +108,88 @@ function QualityField({ preset, options, onCommit, disabled }: {
         <span>{t("opt.smaller")}</span>
         <span>{t("opt.better")}</span>
       </div>
+    </Field>
+  );
+}
+
+function formatKbps(kbps: number, lang: string): string {
+  return kbps >= 1000
+    ? `${(kbps / 1000).toLocaleString(lang, { maximumFractionDigits: 1 })} Mb/s`
+    : `${kbps.toLocaleString(lang)} kb/s`;
+}
+
+/** Target file size in MB: quick picks plus a free value; shows the bitrate the engine will use. */
+function SizeField({
+  preset,
+  value,
+  plan,
+  resolution,
+  onCommit,
+  disabled,
+}: {
+  preset: Preset;
+  value: number;
+  plan: SizePlan | null;
+  resolution: string | null;
+  onCommit: (value: number) => void;
+  disabled: boolean;
+}) {
+  const t = useT();
+  const lang = useLang();
+  const spec = preset.video!;
+  const min = spec.quality_min ?? 1;
+  const max = spec.quality_max ?? 4000;
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+
+  const commit = () => {
+    const parsed = Math.round(Number(draft));
+    if (!Number.isFinite(parsed) || parsed <= 0) return setDraft(String(value));
+    const clamped = Math.min(max, Math.max(min, parsed));
+    setDraft(String(clamped));
+    if (clamped !== value) onCommit(clamped);
+  };
+
+  return (
+    <Field
+      label={t("opt.targetSize")}
+      aside={
+        plan
+          ? t("opt.sizeEstimate", {
+              bitrate: formatKbps(plan.videoKbps, lang),
+              resolution: resolution ?? "",
+            })
+          : undefined
+      }
+      hint={t("opt.targetSizeHint")}
+    >
+      {spec.quality_choices.length > 0 && (
+        <Segmented<string>
+          size="sm"
+          className="w-full"
+          value={String(value)}
+          disabled={disabled}
+          onValueChange={(mb) => onCommit(Number(mb))}
+          options={spec.quality_choices.map((mb) => ({ value: String(mb), label: `${mb} MB` }))}
+        />
+      )}
+      <div className="flex h-9 items-center rounded-lg border border-border bg-surface shadow-card transition focus-within:border-accent focus-within:ring-2 focus-within:ring-ring">
+        <input
+          type="number"
+          inputMode="numeric"
+          min={min}
+          max={max}
+          value={draft}
+          disabled={disabled}
+          aria-label={t("opt.targetSize")}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+          className="h-full min-w-0 flex-1 bg-transparent px-3 text-sm text-fg outline-none tabular disabled:opacity-50"
+        />
+        <span className="pr-3 text-sm text-subtle">MB</span>
+      </div>
+      {plan && plan.videoKbps < LOW_SIZE_KBPS && <p className="text-xs text-warning">{t("opt.sizeTooSmall")}</p>}
     </Field>
   );
 }
@@ -169,6 +250,7 @@ export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) 
   const multi = jobs.length > 1;
   const presets = useStore((s) => s.presets);
   const settings = useStore((s) => s.settings);
+  const canTonemap = useStore((s) => s.system?.ffmpeg.can_tonemap ?? false);
   const preset = presets.find((p) => p.id === job.options.preset_id);
   const [pickerOpen, setPickerOpen] = useState(false);
   if (!preset) return null;
@@ -178,8 +260,18 @@ export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) 
   const video = jobs.find((j) => j.media.video)?.media.video ?? null;
   const hasAudio = jobs.some((j) => j.media.audio.length > 0);
   const spec = preset.video;
-  const showQuality = !!spec && !!video && !preset.remux && (spec.rate_control === "crf" || spec.rate_control === "bitrate");
-  const showResolution = !!spec && !!video && !preset.remux;
+  const encodesVideo = !!spec && !!video && !preset.remux;
+  const showQuality = encodesVideo && ["crf", "bitrate", "quality"].includes(spec.rate_control);
+  const showSize = encodesVideo && spec.rate_control === "size";
+  const showResolution = encodesVideo;
+  const targetMb = options.quality ?? spec?.quality ?? 10;
+  const audioKbps = options.audio_bitrate_kbps ?? preset.audio?.bitrate_kbps ?? null;
+  const plan = showSize && !multi ? sizePlan(job.media, targetMb, audioKbps) : null;
+
+  let hdrNote: string | null = null;
+  if (encodesVideo && jobs.some((j) => j.media.video?.hdr)) {
+    hdrNote = keepsHdr(preset) ? t("opt.hdrKept") : canTonemap ? t("opt.hdrTonemap") : t("opt.hdrNoTonemap");
+  }
 
   const choosePreset = (next: Preset) => {
     setPickerOpen(false);
@@ -187,18 +279,25 @@ export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) 
   };
 
   let resolution: ReactNode = null;
+  let outputShortSide: string | null = null;
   if (showResolution && video) {
+    const [w, h] = displaySize(video);
+    const short = Math.min(w, h);
+    const chosen = options.max_height ? options.max_height : options.max_height === 0 ? null : plan?.shortSide;
+    outputShortSide = `${Math.min(short, chosen ?? short)}p`;
     if (preset.fixed_resolution) {
       resolution = (
         <Field label={t("opt.resolution")}>
-          <Note>{t("opt.res.fixed", { value: DISC_SIZES[preset.target ?? ""] ?? "" })}</Note>
+          <Note>{t("opt.res.fixed", { value: frameLabel(preset.frame) })}</Note>
         </Field>
       );
     } else {
-      const [w, h] = displaySize(video);
-      const short = Math.min(w, h);
       const presetDefault = spec?.max_height && !spec.max_width ? spec.max_height : null;
+      const autoLabel = plan
+        ? t("opt.res.auto", { value: plan.shortSide && plan.shortSide < short ? `${plan.shortSide}p` : `${short}p` })
+        : t("opt.res.autoPlain");
       const choices = [
+        ...(showSize ? [{ value: "preset", label: autoLabel }] : []),
         ...(presetDefault ? [{ value: "preset", label: t("opt.res.preset", { value: `${presetDefault}p` }) }] : []),
         { value: "0", label: t("opt.res.original", { value: `${w}×${h}` }) },
         ...HEIGHTS.filter((height) => height < short).map((height) => ({
@@ -207,7 +306,7 @@ export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) 
         })),
       ];
       const current =
-        options.max_height == null ? (presetDefault ? "preset" : "0") : String(options.max_height);
+        options.max_height == null ? (presetDefault || showSize ? "preset" : "0") : String(options.max_height);
       resolution = (
         <Field label={t("opt.resolution")}>
           <Select
@@ -248,12 +347,25 @@ export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) 
       </Field>
 
       {preset.remux && <Note>{t("opt.remuxNote")}</Note>}
+      {preset.category === "editing" && <Note>{t("opt.editingNote")}</Note>}
+      {!preset.audio && !!spec?.fps && <Note>{t("opt.animationNote", { fps: spec.fps })}</Note>}
+      {hdrNote && <Note>{hdrNote}</Note>}
 
-      {(showQuality || spec?.speed_family || showResolution) && (
+      {(showQuality || showSize || spec?.speed_family || showResolution) && (
         <div className="space-y-5">
           <SectionTitle>{t("info.video")}</SectionTitle>
           {showQuality && (
             <QualityField preset={preset} options={options} disabled={locked} onCommit={(q) => update({ quality: q })} />
+          )}
+          {showSize && (
+            <SizeField
+              preset={preset}
+              value={targetMb}
+              plan={plan}
+              resolution={outputShortSide}
+              disabled={locked}
+              onCommit={(q) => update({ quality: q })}
+            />
           )}
           {spec?.speed_family && video && (
             <Field label={t("opt.speed")} hint={t("opt.speedHint")}>

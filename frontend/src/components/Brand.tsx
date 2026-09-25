@@ -1,16 +1,26 @@
 import {
+  Archive,
   AudioLines,
   AudioWaveform,
   Boxes,
   ChessKnight,
+  Clapperboard,
   Disc3,
   Film,
+  Gauge,
   Globe,
+  Headphones,
+  ImagePlay,
+  Images,
   type LucideIcon,
+  MessageCircle,
+  Monitor,
   MonitorPlay,
   Music,
+  Share2,
   Smartphone,
   Sparkles,
+  Sun,
   Tv,
 } from "lucide-react";
 import type { TranslationKey } from "@/lib/i18n";
@@ -36,27 +46,73 @@ export function Logo({ className, size = "md" }: { className?: string; size?: "s
 interface CategoryMeta {
   icon: LucideIcon;
   label: TranslationKey;
+  hint: TranslationKey;
   tint: string;
 }
 
 export const CATEGORIES: Record<PresetCategory, CategoryMeta> = {
-  video: { icon: Film, label: "cat.video", tint: "bg-violet-500/14 text-violet-500 dark:text-violet-300" },
-  device: { icon: Smartphone, label: "cat.device", tint: "bg-sky-500/14 text-sky-600 dark:text-sky-300" },
-  audio: { icon: Music, label: "cat.audio", tint: "bg-emerald-500/14 text-emerald-600 dark:text-emerald-300" },
-  disc: { icon: Disc3, label: "cat.disc", tint: "bg-amber-500/14 text-amber-600 dark:text-amber-300" },
-  remux: { icon: Boxes, label: "cat.remux", tint: "bg-slate-500/14 text-slate-600 dark:text-slate-300" },
+  video: {
+    icon: Film,
+    label: "cat.video",
+    hint: "cat.video.hint",
+    tint: "bg-violet-500/14 text-violet-500 dark:text-violet-300",
+  },
+  social: {
+    icon: Share2,
+    label: "cat.social",
+    hint: "cat.social.hint",
+    tint: "bg-sky-500/14 text-sky-600 dark:text-sky-300",
+  },
+  editing: {
+    icon: Clapperboard,
+    label: "cat.editing",
+    hint: "cat.editing.hint",
+    tint: "bg-rose-500/14 text-rose-600 dark:text-rose-300",
+  },
+  audio: {
+    icon: Music,
+    label: "cat.audio",
+    hint: "cat.audio.hint",
+    tint: "bg-emerald-500/14 text-emerald-600 dark:text-emerald-300",
+  },
+  remux: {
+    icon: Boxes,
+    label: "cat.remux",
+    hint: "cat.remux.hint",
+    tint: "bg-slate-500/14 text-slate-600 dark:text-slate-300",
+  },
+  legacy: {
+    icon: Archive,
+    label: "cat.legacy",
+    hint: "cat.legacy.hint",
+    tint: "bg-amber-500/14 text-amber-600 dark:text-amber-300",
+  },
 };
 
-export const CATEGORY_ORDER: PresetCategory[] = ["video", "device", "audio", "disc", "remux"];
+export const CATEGORY_ORDER: PresetCategory[] = ["video", "social", "editing", "audio", "remux", "legacy"];
 
 const PRESET_ICONS: Record<string, LucideIcon> = {
   "mp4-av1": Sparkles,
-  "mp4-mobile": Smartphone,
-  "avi-xvid": Tv,
-  wmv: MonitorPlay,
-  flv: Globe,
+  "webm-av1": Sparkles,
+  "mp4-hevc-10bit": Sun,
+  "social-youtube": MonitorPlay,
+  "social-vertical": Smartphone,
+  "mp4-mobile": MessageCircle,
+  "share-size": Gauge,
+  gif: ImagePlay,
+  "webp-anim": Images,
   flac: AudioLines,
+  alac: Headphones,
   wav: AudioWaveform,
+  "avi-xvid": Tv,
+  wmv: Monitor,
+  flv: Globe,
+  "dvd-pal": Disc3,
+  "dvd-ntsc": Disc3,
+  "svcd-pal": Disc3,
+  "svcd-ntsc": Disc3,
+  "vcd-pal": Disc3,
+  "vcd-ntsc": Disc3,
 };
 
 export function PresetIcon({ preset, className }: { preset: Pick<Preset, "id" | "category">; className?: string }) {

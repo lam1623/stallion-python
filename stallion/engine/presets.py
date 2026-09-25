@@ -11,8 +11,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .ffmpeg import FFmpegInfo
 
-Category = Literal["video", "device", "audio", "disc", "remux"]
-RateControl = Literal["crf", "bitrate", "qscale", "none"]
+Category = Literal["video", "social", "editing", "audio", "remux", "legacy"]
+# crf: lower is better · bitrate: kbps · quality: 0-100, higher is better · size: target size in MB
+RateControl = Literal["crf", "bitrate", "quality", "size", "none"]
 SpeedFamily = Literal["x26x", "svtav1", "vpx"]
 SoftSubtitleCodec = Literal["mov_text", "webvtt", "copy"]
 
@@ -23,7 +24,7 @@ TARGET_ENCODERS: dict[str, set[str]] = {
     "vcd": {"mpeg1video", "mp2"},
 }
 
-CATEGORY_ORDER: tuple[Category, ...] = ("video", "device", "audio", "disc", "remux")
+CATEGORY_ORDER: tuple[Category, ...] = ("video", "social", "editing", "audio", "remux", "legacy")
 
 
 class _Strict(BaseModel):
@@ -36,11 +37,21 @@ class VideoSpec(_Strict):
     quality: int | None = None
     quality_min: int | None = None
     quality_max: int | None = None
+    # Suggested values for the UI (target sizes in MB for rate_control="size")
+    quality_choices: list[int] = []
     speed_family: SpeedFamily | None = None
     pix_fmt: str | None = None
     max_height: int | None = None
     max_width: int | None = None
+    # Frame-rate cap (GIF/WebP animations, social platforms)
+    fps: int | None = None
+    # Smallest picture the encoder accepts, as (width, height)
+    min_frame: tuple[int, int] | None = None
     args: list[str] = []
+
+    @property
+    def high_bit_depth(self) -> bool:
+        return self.pix_fmt is not None and any(depth in self.pix_fmt for depth in ("10", "12", "16"))
 
 
 class AudioSpec(_Strict):
@@ -67,8 +78,27 @@ class Preset(_Strict):
     soft_subtitles: SoftSubtitleCodec | None = None
     soft_bitmap_subtitles: bool = False
     fixed_resolution: bool = False
+    # Output frame size, e.g. "1080x1920" (layouts) or the size a disc target produces
+    frame: str | None = None
+    # "blur_fill": fit the video inside `frame` over a blurred copy of itself (vertical social video)
+    layout: Literal["blur_fill"] | None = None
+    # "gif": per-frame palette generation for high-quality GIFs
+    animation: Literal["gif"] | None = None
     output_args: list[str] = []
     tags: list[str] = []
+
+    @property
+    def keeps_hdr(self) -> bool:
+        """Whether HDR sources can stay HDR (10-bit or copied video); otherwise they are tone-mapped."""
+
+        return self.remux or (self.video is not None and self.video.high_bit_depth)
+
+    @property
+    def frame_size(self) -> tuple[int, int] | None:
+        if not self.frame:
+            return None
+        width, _, height = self.frame.partition("x")
+        return int(width), int(height)
 
     @property
     def can_burn_subtitles(self) -> bool:

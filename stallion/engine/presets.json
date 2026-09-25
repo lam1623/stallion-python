@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "presets": [
     {
       "id": "mp4-h264",
@@ -41,6 +41,26 @@
       "tags": ["HEVC", "AAC"]
     },
     {
+      "id": "mp4-hevc-10bit",
+      "category": "video",
+      "name": { "en": "MP4 · HEVC 10-bit HDR", "es": "MP4 · HEVC 10 bits HDR" },
+      "description": {
+        "en": "Keeps the HDR and 10-bit color of modern phones and cameras",
+        "es": "Conserva el HDR y el color de 10 bits de móviles y cámaras modernas"
+      },
+      "extension": ".mp4",
+      "muxer": "mp4",
+      "video": {
+        "codec": "libx265", "rate_control": "crf", "quality": 24, "quality_min": 16, "quality_max": 34,
+        "speed_family": "x26x", "pix_fmt": "yuv420p10le",
+        "args": ["-tag:v", "hvc1", "-x265-params", "log-level=error"]
+      },
+      "audio": { "codec": "aac", "bitrate_kbps": 192, "bitrate_choices": [128, 160, 192, 256, 320] },
+      "soft_subtitles": "mov_text",
+      "output_args": ["-movflags", "+faststart"],
+      "tags": ["HEVC", "10-bit", "HDR"]
+    },
+    {
       "id": "mp4-av1",
       "category": "video",
       "name": { "en": "MP4 · AV1", "es": "MP4 · AV1" },
@@ -60,12 +80,30 @@
       "tags": ["AV1", "AAC"]
     },
     {
+      "id": "webm-av1",
+      "category": "video",
+      "name": { "en": "WebM · AV1", "es": "WebM · AV1" },
+      "description": {
+        "en": "The newest web codec: tiny files that play in any modern browser",
+        "es": "El códec web más nuevo: archivos diminutos para cualquier navegador moderno"
+      },
+      "extension": ".webm",
+      "muxer": "webm",
+      "video": {
+        "codec": "libsvtav1", "rate_control": "crf", "quality": 34, "quality_min": 22, "quality_max": 50,
+        "speed_family": "svtav1", "pix_fmt": "yuv420p"
+      },
+      "audio": { "codec": "libopus", "bitrate_kbps": 128, "channels": 2, "bitrate_choices": [64, 96, 128, 160, 192, 256] },
+      "soft_subtitles": "webvtt",
+      "tags": ["AV1", "Opus"]
+    },
+    {
       "id": "webm-vp9",
       "category": "video",
       "name": { "en": "WebM · VP9", "es": "WebM · VP9" },
       "description": {
-        "en": "Open format for the web with Opus audio",
-        "es": "Formato abierto para la web con audio Opus"
+        "en": "Open web format with Opus audio, widely supported",
+        "es": "Formato web abierto con audio Opus, muy compatible"
       },
       "extension": ".webm",
       "muxer": "webm",
@@ -76,6 +114,25 @@
       "audio": { "codec": "libopus", "bitrate_kbps": 128, "channels": 2, "bitrate_choices": [64, 96, 128, 160, 192, 256] },
       "soft_subtitles": "webvtt",
       "tags": ["VP9", "Opus"]
+    },
+    {
+      "id": "mkv-hevc",
+      "category": "video",
+      "name": { "en": "MKV · HEVC 10-bit", "es": "MKV · HEVC 10 bits" },
+      "description": {
+        "en": "Movies and series: small files, high quality, subtitles kept",
+        "es": "Películas y series: poco peso, alta calidad y subtítulos incluidos"
+      },
+      "extension": ".mkv",
+      "muxer": "matroska",
+      "video": {
+        "codec": "libx265", "rate_control": "crf", "quality": 22, "quality_min": 16, "quality_max": 32,
+        "speed_family": "x26x", "pix_fmt": "yuv420p10le", "args": ["-x265-params", "log-level=error"]
+      },
+      "audio": { "codec": "aac", "bitrate_kbps": 224, "bitrate_choices": [128, 160, 192, 224, 256, 320, 384] },
+      "soft_subtitles": "copy",
+      "soft_bitmap_subtitles": true,
+      "tags": ["HEVC", "10-bit", "MKV"]
     },
     {
       "id": "mkv-h264",
@@ -97,12 +154,52 @@
       "tags": ["H.264", "AAC", "MKV"]
     },
     {
-      "id": "mp4-mobile",
-      "category": "device",
-      "name": { "en": "Phone · WhatsApp", "es": "Móvil · WhatsApp" },
+      "id": "social-youtube",
+      "category": "social",
+      "name": { "en": "YouTube · Vimeo", "es": "YouTube · Vimeo" },
       "description": {
-        "en": "Light 720p MP4 that is easy to share",
-        "es": "MP4 ligero en 720p, fácil de compartir"
+        "en": "High-quality upload following the platforms' recommended settings",
+        "es": "Subida en alta calidad con los ajustes que recomiendan las plataformas"
+      },
+      "extension": ".mp4",
+      "muxer": "mp4",
+      "video": {
+        "codec": "libx264", "rate_control": "crf", "quality": 18, "quality_min": 14, "quality_max": 26,
+        "speed_family": "x26x", "pix_fmt": "yuv420p", "args": ["-profile:v", "high", "-bf", "2"]
+      },
+      "audio": { "codec": "aac", "bitrate_kbps": 320, "sample_rate": 48000, "bitrate_choices": [192, 256, 320, 384] },
+      "soft_subtitles": "mov_text",
+      "output_args": ["-movflags", "+faststart"],
+      "tags": ["H.264", "High", "AAC"]
+    },
+    {
+      "id": "social-vertical",
+      "category": "social",
+      "name": { "en": "Reels · TikTok · Shorts", "es": "Reels · TikTok · Shorts" },
+      "description": {
+        "en": "Vertical 1080×1920; horizontal videos get a blurred background",
+        "es": "Vertical 1080×1920; los vídeos horizontales llevan fondo desenfocado"
+      },
+      "extension": ".mp4",
+      "muxer": "mp4",
+      "video": {
+        "codec": "libx264", "rate_control": "crf", "quality": 21, "quality_min": 16, "quality_max": 30,
+        "speed_family": "x26x", "pix_fmt": "yuv420p", "fps": 60, "args": ["-profile:v", "high"]
+      },
+      "audio": { "codec": "aac", "bitrate_kbps": 192, "sample_rate": 48000, "bitrate_choices": [128, 160, 192, 256] },
+      "layout": "blur_fill",
+      "frame": "1080x1920",
+      "fixed_resolution": true,
+      "output_args": ["-movflags", "+faststart"],
+      "tags": ["9:16", "1080p", "H.264"]
+    },
+    {
+      "id": "mp4-mobile",
+      "category": "social",
+      "name": { "en": "WhatsApp · Telegram", "es": "WhatsApp · Telegram" },
+      "description": {
+        "en": "Light 720p MP4 that is quick to send",
+        "es": "MP4 ligero en 720p, rápido de enviar"
       },
       "extension": ".mp4",
       "muxer": "mp4",
@@ -117,56 +214,109 @@
       "tags": ["720p", "H.264"]
     },
     {
-      "id": "avi-xvid",
-      "category": "device",
-      "name": { "en": "AVI · Xvid", "es": "AVI · Xvid" },
+      "id": "share-size",
+      "category": "social",
+      "name": { "en": "Fit a size limit", "es": "Ajustar a un tamaño" },
       "description": {
-        "en": "Old DVD/DivX players and TVs with a USB port",
-        "es": "Reproductores DVD/DivX antiguos y TV con USB"
+        "en": "Discord, email or any upload limit: quality adapts so the file fits",
+        "es": "Discord, correo o cualquier límite: la calidad se adapta para que quepa"
       },
-      "extension": ".avi",
-      "muxer": "avi",
+      "extension": ".mp4",
+      "muxer": "mp4",
       "video": {
-        "codec": "libxvid", "rate_control": "bitrate", "quality": 1500, "quality_min": 500, "quality_max": 5000,
-        "pix_fmt": "yuv420p", "max_height": 576, "max_width": 720,
-        "args": ["-vtag", "XVID", "-bf", "2"]
+        "codec": "libx264", "rate_control": "size", "quality": 10, "quality_min": 1, "quality_max": 4000,
+        "quality_choices": [8, 10, 25, 50, 100, 500], "speed_family": "x26x", "pix_fmt": "yuv420p"
       },
-      "audio": { "codec": "libmp3lame", "bitrate_kbps": 128, "channels": 2, "bitrate_choices": [96, 128, 160, 192] },
-      "tags": ["Xvid", "MP3"]
+      "audio": { "codec": "aac", "bitrate_kbps": 96, "channels": 2 },
+      "soft_subtitles": "mov_text",
+      "output_args": ["-movflags", "+faststart"],
+      "tags": ["H.264", "MB"]
     },
     {
-      "id": "wmv",
-      "category": "device",
-      "name": { "en": "WMV · Windows Media", "es": "WMV · Windows Media" },
+      "id": "gif",
+      "category": "social",
+      "name": { "en": "Animated GIF", "es": "GIF animado" },
       "description": {
-        "en": "Windows Media Player and older Windows PCs",
-        "es": "Windows Media Player y PC con Windows antiguos"
+        "en": "For chats and documents; best for short clips",
+        "es": "Para chats y documentos; ideal para clips cortos"
       },
-      "extension": ".wmv",
-      "muxer": "asf",
-      "video": {
-        "codec": "wmv2", "rate_control": "bitrate", "quality": 2000, "quality_min": 300, "quality_max": 8000,
-        "pix_fmt": "yuv420p", "max_height": 720
-      },
-      "audio": { "codec": "wmav2", "bitrate_kbps": 128, "channels": 2, "bitrate_choices": [64, 96, 128, 192] },
-      "tags": ["WMV2", "WMA"]
+      "extension": ".gif",
+      "muxer": "gif",
+      "video": { "codec": "gif", "rate_control": "none", "fps": 12, "max_height": 360 },
+      "animation": "gif",
+      "output_args": ["-loop", "0"],
+      "tags": ["GIF", "12 fps"]
     },
     {
-      "id": "flv",
-      "category": "device",
-      "name": { "en": "FLV · Flash Video", "es": "FLV · Flash Video" },
+      "id": "webp-anim",
+      "category": "social",
+      "name": { "en": "Animated WebP", "es": "WebP animado" },
       "description": {
-        "en": "Legacy websites and players that still expect Flash video",
-        "es": "Webs y reproductores antiguos que aún usan vídeo Flash"
+        "en": "Like a GIF but in full color and many times smaller",
+        "es": "Como un GIF pero a todo color y muchas veces más ligero"
       },
-      "extension": ".flv",
-      "muxer": "flv",
+      "extension": ".webp",
+      "muxer": "webp",
       "video": {
-        "codec": "libx264", "rate_control": "crf", "quality": 24, "quality_min": 18, "quality_max": 34,
-        "speed_family": "x26x", "pix_fmt": "yuv420p", "max_height": 720
+        "codec": "libwebp_anim", "rate_control": "quality", "quality": 75, "quality_min": 40, "quality_max": 95,
+        "fps": 15, "max_height": 480, "args": ["-lossless", "0", "-compression_level", "4"]
       },
-      "audio": { "codec": "aac", "bitrate_kbps": 128, "channels": 2, "sample_rate": 44100, "bitrate_choices": [96, 128, 160] },
-      "tags": ["H.264", "AAC"]
+      "output_args": ["-loop", "0"],
+      "tags": ["WebP", "15 fps"]
+    },
+    {
+      "id": "prores-hq",
+      "category": "editing",
+      "name": { "en": "ProRes 422 HQ", "es": "ProRes 422 HQ" },
+      "description": {
+        "en": "Editing master for Final Cut, Premiere and DaVinci Resolve",
+        "es": "Máster de edición para Final Cut, Premiere y DaVinci Resolve"
+      },
+      "extension": ".mov",
+      "muxer": "mov",
+      "video": {
+        "codec": "prores_ks", "rate_control": "none", "pix_fmt": "yuv422p10le",
+        "args": ["-profile:v", "3", "-vendor", "apl0"]
+      },
+      "audio": { "codec": "pcm_s24le" },
+      "tags": ["ProRes", "10-bit", "PCM"]
+    },
+    {
+      "id": "prores-proxy",
+      "category": "editing",
+      "name": { "en": "ProRes Proxy", "es": "ProRes Proxy" },
+      "description": {
+        "en": "Light proxy files for smooth editing on any computer",
+        "es": "Proxies ligeros para editar con fluidez en cualquier equipo"
+      },
+      "extension": ".mov",
+      "muxer": "mov",
+      "video": {
+        "codec": "prores_ks", "rate_control": "none", "pix_fmt": "yuv422p10le",
+        "args": ["-profile:v", "0", "-vendor", "apl0"]
+      },
+      "audio": { "codec": "pcm_s16le" },
+      "tags": ["ProRes", "Proxy"]
+    },
+    {
+      "id": "dnxhr-hq",
+      "category": "editing",
+      "name": { "en": "DNxHR HQ", "es": "DNxHR HQ" },
+      "description": {
+        "en": "For DaVinci Resolve on Linux and Avid workflows",
+        "es": "Para DaVinci Resolve en Linux y flujos de trabajo de Avid"
+      },
+      "extension": ".mov",
+      "muxer": "mov",
+      "video": {
+        "codec": "dnxhd",
+        "rate_control": "none",
+        "pix_fmt": "yuv422p",
+        "min_frame": [256, 120],
+        "args": ["-profile:v", "dnxhr_hq"]
+      },
+      "audio": { "codec": "pcm_s16le" },
+      "tags": ["DNxHR", "PCM"]
     },
     {
       "id": "mp3",
@@ -214,6 +364,19 @@
       "tags": ["Lossless"]
     },
     {
+      "id": "alac",
+      "category": "audio",
+      "name": { "en": "ALAC · Apple Lossless", "es": "ALAC · Apple Lossless" },
+      "description": {
+        "en": "Lossless audio for Apple Music, iPhone and iPad",
+        "es": "Audio sin pérdida para Apple Music, iPhone y iPad"
+      },
+      "extension": ".m4a",
+      "muxer": "ipod",
+      "audio": { "codec": "alac" },
+      "tags": ["Lossless", "Apple"]
+    },
+    {
       "id": "wav",
       "category": "audio",
       "name": { "en": "WAV", "es": "WAV" },
@@ -222,80 +385,6 @@
       "muxer": "wav",
       "audio": { "codec": "pcm_s16le" },
       "tags": ["PCM"]
-    },
-    {
-      "id": "dvd-pal",
-      "category": "disc",
-      "name": { "en": "DVD · PAL", "es": "DVD · PAL" },
-      "description": { "en": "720×576 MPEG-2 for DVD authoring (Europe)", "es": "MPEG-2 720×576 para crear DVD (Europa)" },
-      "extension": ".mpg",
-      "target": "pal-dvd",
-      "video": { "codec": "mpeg2video", "rate_control": "none" },
-      "audio": { "codec": "ac3" },
-      "fixed_resolution": true,
-      "tags": ["MPEG-2", "AC-3"]
-    },
-    {
-      "id": "dvd-ntsc",
-      "category": "disc",
-      "name": { "en": "DVD · NTSC", "es": "DVD · NTSC" },
-      "description": { "en": "720×480 MPEG-2 for DVD authoring (America, Japan)", "es": "MPEG-2 720×480 para crear DVD (América, Japón)" },
-      "extension": ".mpg",
-      "target": "ntsc-dvd",
-      "video": { "codec": "mpeg2video", "rate_control": "none" },
-      "audio": { "codec": "ac3" },
-      "fixed_resolution": true,
-      "tags": ["MPEG-2", "AC-3"]
-    },
-    {
-      "id": "svcd-pal",
-      "category": "disc",
-      "name": { "en": "SVCD · PAL", "es": "SVCD · PAL" },
-      "description": { "en": "480×576 MPEG-2 Super Video CD", "es": "Super Video CD MPEG-2 480×576" },
-      "extension": ".mpg",
-      "target": "pal-svcd",
-      "video": { "codec": "mpeg2video", "rate_control": "none" },
-      "audio": { "codec": "mp2" },
-      "fixed_resolution": true,
-      "tags": ["MPEG-2", "MP2"]
-    },
-    {
-      "id": "svcd-ntsc",
-      "category": "disc",
-      "name": { "en": "SVCD · NTSC", "es": "SVCD · NTSC" },
-      "description": { "en": "480×480 MPEG-2 Super Video CD", "es": "Super Video CD MPEG-2 480×480" },
-      "extension": ".mpg",
-      "target": "ntsc-svcd",
-      "video": { "codec": "mpeg2video", "rate_control": "none" },
-      "audio": { "codec": "mp2" },
-      "fixed_resolution": true,
-      "tags": ["MPEG-2", "MP2"]
-    },
-    {
-      "id": "vcd-pal",
-      "category": "disc",
-      "name": { "en": "VCD · PAL", "es": "VCD · PAL" },
-      "description": { "en": "352×288 MPEG-1 Video CD", "es": "Video CD MPEG-1 352×288" },
-      "extension": ".mpg",
-      "target": "pal-vcd",
-      "widescreen": false,
-      "video": { "codec": "mpeg1video", "rate_control": "none" },
-      "audio": { "codec": "mp2" },
-      "fixed_resolution": true,
-      "tags": ["MPEG-1", "MP2"]
-    },
-    {
-      "id": "vcd-ntsc",
-      "category": "disc",
-      "name": { "en": "VCD · NTSC", "es": "VCD · NTSC" },
-      "description": { "en": "352×240 MPEG-1 Video CD", "es": "Video CD MPEG-1 352×240" },
-      "extension": ".mpg",
-      "target": "ntsc-vcd",
-      "widescreen": false,
-      "video": { "codec": "mpeg1video", "rate_control": "none" },
-      "audio": { "codec": "mp2" },
-      "fixed_resolution": true,
-      "tags": ["MPEG-1", "MP2"]
     },
     {
       "id": "remux-mkv",
@@ -329,6 +418,138 @@
       "audio": { "codec": "copy" },
       "output_args": ["-movflags", "+faststart"],
       "tags": ["Copy"]
+    },
+    {
+      "id": "avi-xvid",
+      "category": "legacy",
+      "name": { "en": "AVI · Xvid", "es": "AVI · Xvid" },
+      "description": {
+        "en": "Old DVD/DivX players and TVs with a USB port",
+        "es": "Reproductores DVD/DivX antiguos y TV con USB"
+      },
+      "extension": ".avi",
+      "muxer": "avi",
+      "video": {
+        "codec": "libxvid", "rate_control": "bitrate", "quality": 1500, "quality_min": 500, "quality_max": 5000,
+        "pix_fmt": "yuv420p", "max_height": 576, "max_width": 720,
+        "args": ["-vtag", "XVID", "-bf", "2"]
+      },
+      "audio": { "codec": "libmp3lame", "bitrate_kbps": 128, "channels": 2, "bitrate_choices": [96, 128, 160, 192] },
+      "tags": ["Xvid", "MP3"]
+    },
+    {
+      "id": "wmv",
+      "category": "legacy",
+      "name": { "en": "WMV · Windows Media", "es": "WMV · Windows Media" },
+      "description": {
+        "en": "Windows Media Player and older Windows PCs",
+        "es": "Windows Media Player y PC con Windows antiguos"
+      },
+      "extension": ".wmv",
+      "muxer": "asf",
+      "video": {
+        "codec": "wmv2", "rate_control": "bitrate", "quality": 2000, "quality_min": 300, "quality_max": 8000,
+        "pix_fmt": "yuv420p", "max_height": 720
+      },
+      "audio": { "codec": "wmav2", "bitrate_kbps": 128, "channels": 2, "bitrate_choices": [64, 96, 128, 192] },
+      "tags": ["WMV2", "WMA"]
+    },
+    {
+      "id": "flv",
+      "category": "legacy",
+      "name": { "en": "FLV · Flash Video", "es": "FLV · Flash Video" },
+      "description": {
+        "en": "Legacy websites and players that still expect Flash video",
+        "es": "Webs y reproductores antiguos que aún usan vídeo Flash"
+      },
+      "extension": ".flv",
+      "muxer": "flv",
+      "video": {
+        "codec": "libx264", "rate_control": "crf", "quality": 24, "quality_min": 18, "quality_max": 34,
+        "speed_family": "x26x", "pix_fmt": "yuv420p", "max_height": 720
+      },
+      "audio": { "codec": "aac", "bitrate_kbps": 128, "channels": 2, "sample_rate": 44100, "bitrate_choices": [96, 128, 160] },
+      "tags": ["H.264", "AAC"]
+    },
+    {
+      "id": "dvd-pal",
+      "category": "legacy",
+      "name": { "en": "DVD · PAL", "es": "DVD · PAL" },
+      "description": { "en": "720×576 MPEG-2 for DVD authoring (Europe)", "es": "MPEG-2 720×576 para crear DVD (Europa)" },
+      "extension": ".mpg",
+      "target": "pal-dvd",
+      "video": { "codec": "mpeg2video", "rate_control": "none" },
+      "audio": { "codec": "ac3" },
+      "fixed_resolution": true,
+      "frame": "720x576",
+      "tags": ["MPEG-2", "AC-3"]
+    },
+    {
+      "id": "dvd-ntsc",
+      "category": "legacy",
+      "name": { "en": "DVD · NTSC", "es": "DVD · NTSC" },
+      "description": { "en": "720×480 MPEG-2 for DVD authoring (America, Japan)", "es": "MPEG-2 720×480 para crear DVD (América, Japón)" },
+      "extension": ".mpg",
+      "target": "ntsc-dvd",
+      "video": { "codec": "mpeg2video", "rate_control": "none" },
+      "audio": { "codec": "ac3" },
+      "fixed_resolution": true,
+      "frame": "720x480",
+      "tags": ["MPEG-2", "AC-3"]
+    },
+    {
+      "id": "svcd-pal",
+      "category": "legacy",
+      "name": { "en": "SVCD · PAL", "es": "SVCD · PAL" },
+      "description": { "en": "480×576 MPEG-2 Super Video CD", "es": "Super Video CD MPEG-2 480×576" },
+      "extension": ".mpg",
+      "target": "pal-svcd",
+      "video": { "codec": "mpeg2video", "rate_control": "none" },
+      "audio": { "codec": "mp2" },
+      "fixed_resolution": true,
+      "frame": "480x576",
+      "tags": ["MPEG-2", "MP2"]
+    },
+    {
+      "id": "svcd-ntsc",
+      "category": "legacy",
+      "name": { "en": "SVCD · NTSC", "es": "SVCD · NTSC" },
+      "description": { "en": "480×480 MPEG-2 Super Video CD", "es": "Super Video CD MPEG-2 480×480" },
+      "extension": ".mpg",
+      "target": "ntsc-svcd",
+      "video": { "codec": "mpeg2video", "rate_control": "none" },
+      "audio": { "codec": "mp2" },
+      "fixed_resolution": true,
+      "frame": "480x480",
+      "tags": ["MPEG-2", "MP2"]
+    },
+    {
+      "id": "vcd-pal",
+      "category": "legacy",
+      "name": { "en": "VCD · PAL", "es": "VCD · PAL" },
+      "description": { "en": "352×288 MPEG-1 Video CD", "es": "Video CD MPEG-1 352×288" },
+      "extension": ".mpg",
+      "target": "pal-vcd",
+      "widescreen": false,
+      "video": { "codec": "mpeg1video", "rate_control": "none" },
+      "audio": { "codec": "mp2" },
+      "fixed_resolution": true,
+      "frame": "352x288",
+      "tags": ["MPEG-1", "MP2"]
+    },
+    {
+      "id": "vcd-ntsc",
+      "category": "legacy",
+      "name": { "en": "VCD · NTSC", "es": "VCD · NTSC" },
+      "description": { "en": "352×240 MPEG-1 Video CD", "es": "Video CD MPEG-1 352×240" },
+      "extension": ".mpg",
+      "target": "ntsc-vcd",
+      "widescreen": false,
+      "video": { "codec": "mpeg1video", "rate_control": "none" },
+      "audio": { "codec": "mp2" },
+      "fixed_resolution": true,
+      "frame": "352x240",
+      "tags": ["MPEG-1", "MP2"]
     }
   ]
 }

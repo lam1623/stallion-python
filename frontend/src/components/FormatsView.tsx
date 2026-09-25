@@ -23,10 +23,11 @@ export function FormatsView() {
           const Icon = CATEGORIES[category].icon;
           return (
             <section key={category} className="mt-8">
-              <SectionTitle className="mb-3 flex items-center gap-2">
+              <SectionTitle className="flex items-center gap-2">
                 <Icon className="size-3.5" />
                 {t(CATEGORIES[category].label)}
               </SectionTitle>
+              <p className="mt-1 mb-3 text-[13px] text-muted">{t(CATEGORIES[category].hint)}</p>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {items.map((preset) => {
                   const isDefault = preset.id === defaultPreset;
