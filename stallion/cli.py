@@ -240,8 +240,9 @@ async def _convert(args: argparse.Namespace) -> int:
                     print(f"{status:<9} {job_data['name']} → {detail}", flush=True)
             elif event["type"] == "queue_finished":
                 counts = event["counts"]
-                print(f"\nDone: {counts['completed']} completed, {counts['failed']} failed.")
-                return 0 if counts["failed"] == 0 and counts["canceled"] == 0 else 1
+                skipped = f", {len(errors)} skipped" if errors else ""
+                print(f"\nDone: {counts['completed']} completed, {counts['failed']} failed{skipped}.")
+                return 0 if counts["failed"] == 0 and counts["canceled"] == 0 and not errors else 1
     finally:
         manager.unsubscribe(events)
         await manager.shutdown()
