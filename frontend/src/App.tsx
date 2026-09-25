@@ -85,7 +85,7 @@ function useTheme() {
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
   }, [theme]);
-  return theme ?? "system";
+  return theme ?? "light";
 }
 
 function useDropGuard() {

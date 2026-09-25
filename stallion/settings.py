@@ -26,7 +26,7 @@ class Settings(BaseModel):
     overwrite: bool = False
     delete_partial: bool = True
     notify_on_finish: bool = True
-    theme: Literal["system", "dark", "light"] = "system"
+    theme: Literal["system", "dark", "light"] = "light"
     language: Literal["auto", "es", "en"] = "auto"
 
 

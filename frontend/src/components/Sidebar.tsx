@@ -42,11 +42,11 @@ function NavItem({
 
 function ThemeSwitch() {
   const t = useT();
-  const theme = useStore((s) => s.settings?.theme ?? "system");
+  const theme = useStore((s) => s.settings?.theme ?? "light");
   const options = [
-    { value: "system", icon: <Monitor />, label: t("theme.system") },
     { value: "light", icon: <Sun />, label: t("theme.light") },
     { value: "dark", icon: <Moon />, label: t("theme.dark") },
+    { value: "system", icon: <Monitor />, label: t("theme.system") },
   ] as const;
   return (
     <div className="flex rounded-lg border border-border bg-bg/60 p-0.5 max-lg:flex-col">
