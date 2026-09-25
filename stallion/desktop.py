@@ -21,7 +21,8 @@ from .api import create_app
 from .config import AppConfig
 from .fs import AUDIO_EXTENSIONS, SUBTITLE_EXTENSIONS, VIDEO_EXTENSIONS
 
-WINDOW_BACKGROUND = "#0b0c10"
+# Light theme background: avoids a dark flash before the UI paints
+WINDOW_BACKGROUND = "#f4f4f6"
 
 
 def _free_port() -> int:

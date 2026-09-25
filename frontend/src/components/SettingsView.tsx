@@ -49,9 +49,9 @@ export function SettingsView() {
                 value={settings.theme}
                 onValueChange={(theme) => void saveSettings({ theme })}
                 options={[
-                  { value: "system", label: t("theme.system") },
                   { value: "light", label: t("theme.light") },
                   { value: "dark", label: t("theme.dark") },
+                  { value: "system", label: t("theme.system") },
                 ]}
               />
             }

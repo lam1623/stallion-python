@@ -2,7 +2,7 @@
 
 Modern video and audio converter powered by FFmpeg. The same web-based UI runs as a **desktop app** (native window) or as a **self-hosted service in Docker**.
 
-![Stallion conversion queue](docs/screenshots/queue-dark.png)
+![Stallion conversion queue](docs/screenshots/queue-light.png)
 
 ## Features
 
@@ -19,12 +19,12 @@ Modern video and audio converter powered by FFmpeg. The same web-based UI runs a
 - **Audio tracks**: pick the language you want; remuxing keeps every track.
 - **Subtitles**: burn them in or embed them as a track, from embedded tracks (text or PGS/VobSub images) or external `.srt/.ass/.ssa/.vtt` files. A matching `.srt` next to the video is picked up automatically, Windows-1252 files are detected, and a style editor shows a live preview.
 - **Queue**: parallel conversions, pause/resume/cancel/retry, live progress with speed and ETA, thumbnails, batch editing, and the exact `ffmpeg` command for every job.
-- **Spanish and English UI**, dark and light themes, keyboard shortcuts.
+- **Spanish and English UI**, light theme by default with an optional dark mode, keyboard shortcuts.
 - **Headless CLI** for scripts and servers.
 
-| Tracks and subtitles | Formats | Light theme |
+| Tracks and subtitles | Formats | Dark mode |
 | --- | --- | --- |
-| ![Tracks](docs/screenshots/tracks-dark.png) | ![Format picker](docs/screenshots/formats-dark.png) | ![Light theme](docs/screenshots/queue-light.png) |
+| ![Tracks](docs/screenshots/tracks-light.png) | ![Formats](docs/screenshots/formats-light.png) | ![Dark mode](docs/screenshots/queue-dark.png) |
 
 ## Quick start
 
