@@ -160,7 +160,7 @@ export function Segmented<T extends string>({
           disabled={option.disabled}
           title={typeof option.hint === "string" ? option.hint : undefined}
           className={cn(
-            "inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium text-muted outline-none transition hover:text-fg focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40 data-[state=on]:bg-surface data-[state=on]:text-fg data-[state=on]:shadow-card [&_svg]:size-3.5",
+            "inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium text-muted outline-none transition hover:text-fg focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40 data-[state=on]:bg-raised data-[state=on]:text-fg data-[state=on]:shadow-card [&_svg]:size-3.5",
             size === "sm" ? "h-6 px-2 text-xs" : "h-7 px-3 text-[13px]",
           )}
         >

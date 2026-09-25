@@ -10,6 +10,8 @@
   --panel: #fafafb;
   --surface: #ffffff;
   --elevated: #f0f0f4;
+  /* Active pill inside a segmented track */
+  --raised: #ffffff;
   --border: rgb(17 19 28 / 0.08);
   --border-strong: rgb(17 19 28 / 0.15);
   --fg: #15161c;
@@ -25,29 +27,40 @@
   --danger: #dc2626;
   --info: #2563eb;
   --shadow: 0 1px 2px rgb(16 18 27 / 0.06), 0 8px 24px -12px rgb(16 18 27 / 0.12);
+  /* Colored halo under brand buttons and the logo */
+  --glow: var(--accent);
+  /* Gradient fills behind white text (buttons, logo, progress) */
+  --brand-from: var(--accent);
+  --brand-to: var(--accent-2);
 }
 
+/* Graphite dark theme: the light theme's layering with the lights dimmed, not pitch black */
 .dark {
   color-scheme: dark;
-  --bg: #0b0c10;
-  --panel: #0f1016;
-  --surface: #14151c;
-  --elevated: #1b1d26;
+  --bg: #1a1b1f;
+  --panel: #1f2025;
+  --surface: #26272d;
+  --elevated: #2e2f36;
+  --raised: #3b3c44;
   --border: rgb(255 255 255 / 0.07);
-  --border-strong: rgb(255 255 255 / 0.13);
-  --fg: #ecedf3;
-  --muted: #9b9eae;
-  --subtle: #6c6f80;
-  --accent: #8b7cff;
-  --accent-2: #d946ef;
+  --border-strong: rgb(255 255 255 / 0.12);
+  --fg: #e8e9ee;
+  --muted: #a4a7b3;
+  --subtle: #7f8290;
+  --accent: #958bff;
+  --accent-2: #c77dec;
   --accent-fg: #ffffff;
-  --accent-soft: rgb(139 124 255 / 0.14);
-  --ring: rgb(139 124 255 / 0.5);
-  --success: #34d399;
-  --warning: #fbbf24;
-  --danger: #f87171;
-  --info: #60a5fa;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px -16px rgb(0 0 0 / 0.6);
+  --accent-soft: rgb(149 139 255 / 0.14);
+  --ring: rgb(149 139 255 / 0.5);
+  --success: #4cc38a;
+  --warning: #e5a93b;
+  --danger: #ef7070;
+  --info: #62a4f2;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.25), 0 8px 24px -12px rgb(0 0 0 / 0.5);
+  --glow: rgb(0 0 0 / 0.55);
+  /* Deeper than the accent so white text stays readable (≥ 4.4:1) */
+  --brand-from: #6f63e8;
+  --brand-to: #9f58d0;
 }
 
 @theme inline {
@@ -57,6 +70,7 @@
   --color-panel: var(--panel);
   --color-surface: var(--surface);
   --color-elevated: var(--elevated);
+  --color-raised: var(--raised);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-fg: var(--fg);
@@ -160,7 +174,7 @@
 }
 
 @utility bg-brand {
-  background-image: linear-gradient(135deg, var(--accent), var(--accent-2));
+  background-image: linear-gradient(135deg, var(--brand-from), var(--brand-to));
 }
 
 @utility text-brand {

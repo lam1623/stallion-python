@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -11,7 +12,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import ValidationError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import Response
+from starlette.responses import FileResponse, Response
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Scope
 
@@ -63,6 +64,9 @@ class SecurityHeaders(BaseHTTPMiddleware):
         return response
 
 
+_HTML_TAG = re.compile(r"<html\b", re.IGNORECASE)
+
+
 class SPAStaticFiles(StaticFiles):
     """Static SPA files: hashed assets are immutable, the HTML shell is always revalidated."""
 
@@ -70,9 +74,25 @@ class SPAStaticFiles(StaticFiles):
         response = await super().get_response(path, scope)
         if path.startswith("assets/"):
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-        else:
-            response.headers["Cache-Control"] = "no-cache"
+            return response
+        if isinstance(response, FileResponse) and response.media_type == "text/html":
+            response = _stamp_theme(response, scope)
+        response.headers["Cache-Control"] = "no-cache"
         return response
+
+
+def _stamp_theme(response: FileResponse, scope: Scope) -> Response:
+    """Put the saved theme on ``<html data-theme>`` so the very first paint already uses it.
+
+    The desktop app gets a new port (a new origin, hence empty localStorage) on every launch.
+    """
+
+    ctx = getattr(scope["app"].state, "ctx", None)
+    if ctx is None:
+        return response
+    html = Path(response.path).read_text("utf-8")
+    html = _HTML_TAG.sub(f'<html data-theme="{ctx.settings.current.theme}"', html, count=1)
+    return HTMLResponse(html, status_code=response.status_code)
 
 
 def _discover_ffmpeg(config: AppConfig) -> tuple[FFmpegInfo | None, str | None]:

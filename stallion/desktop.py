@@ -20,9 +20,15 @@ import uvicorn
 from .api import create_app
 from .config import AppConfig
 from .fs import AUDIO_EXTENSIONS, SUBTITLE_EXTENSIONS, VIDEO_EXTENSIONS
+from .settings import SettingsStore
 
-# Light theme background: avoids a dark flash before the UI paints
-WINDOW_BACKGROUND = "#f4f4f6"
+# Window color shown before the UI paints, matching --bg of each theme in index.css
+WINDOW_BACKGROUNDS = {"light": "#f4f4f6", "dark": "#1a1b1f"}
+
+
+def _window_background(config: AppConfig) -> str:
+    theme = SettingsStore(config.settings_path).current.theme
+    return WINDOW_BACKGROUNDS.get(theme, WINDOW_BACKGROUNDS["light"])
 
 
 def _free_port() -> int:
@@ -142,7 +148,7 @@ def run_desktop(config: AppConfig, *, prefer_browser: bool = False) -> int:
             width=1360,
             height=860,
             min_size=(980, 640),
-            background_color=WINDOW_BACKGROUND,
+            background_color=_window_background(config),
         )
         bridge.attach(window)
         webview.start(gui=_preferred_gui(), private_mode=False, storage_path=str(config.data_dir / "webview"))
