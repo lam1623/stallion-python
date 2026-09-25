@@ -1,0 +1,24 @@
+# docker compose up -d  →  http://localhost:8000/auth?token=$STALLION_TOKEN
+services:
+  stallion:
+    build: .
+    image: stallion:latest
+    container_name: stallion
+    ports:
+      - "8000:8000"
+    environment:
+      # Required: the access token for the web UI (put it in .env)
+      STALLION_TOKEN: ${STALLION_TOKEN:?Set STALLION_TOKEN in .env}
+      # Only when a reverse proxy in front already authenticates users:
+      # STALLION_AUTH: "off"
+      # FORWARDED_ALLOW_IPS: "172.16.0.0/12"
+    volumes:
+      # Videos to convert; converted files are written here too
+      - ${MEDIA_DIR:-./media}:/media
+      - stallion-data:/data
+    # Converted files are written as this user: match the owner of MEDIA_DIR (`id -u` / `id -g`)
+    user: "${PUID:-1000}:${PGID:-1000}"
+    restart: unless-stopped
+
+volumes:
+  stallion-data:

@@ -1,0 +1,16 @@
+.git
+.github
+**/node_modules
+**/__pycache__
+**/*.pyc
+.venv
+venv
+stallion/web/dist
+frontend/dist
+legacy
+tests
+.pytest_cache
+.mypy_cache
+.ruff_cache
+*.log
+.env

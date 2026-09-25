@@ -1,55 +1,103 @@
 # Stallion
 
-Legacy GTK interface for mencoder (original project), now with a modern FFmpeg-based core that can be reused by desktop and web frontends.
+Modern video and audio converter powered by FFmpeg. The same web-based UI runs as a **desktop app** (native window) or as a **self-hosted service in Docker**.
+
+![Stallion conversion queue](docs/screenshots/queue-dark.png)
+
+## Features
+
+- **22 ready-made formats**: MP4 (H.264, H.265/HEVC, AV1), WebM (VP9 + Opus), MKV, a light 720p MP4 for phones, AVI (Xvid), WMV, FLV, MP3, M4A, Opus, FLAC, WAV, DVD/SVCD/VCD (PAL and NTSC) and lossless remuxing to MKV/MP4.
+- **Per-file control**: quality (CRF or bitrate), encoding speed, resolution (never upscales, handles portrait and anamorphic video), audio bitrate, volume and EBU R128 loudness normalization.
+- **Audio tracks**: pick the language you want; remuxing keeps every track.
+- **Subtitles**: burn them in or embed them as a track, from embedded tracks (text or PGS/VobSub images) or external `.srt/.ass/.ssa/.vtt` files. A matching `.srt` next to the video is picked up automatically, Windows-1252 files are detected, and a style editor shows a live preview.
+- **Queue**: parallel conversions, pause/resume/cancel/retry, live progress with speed and ETA, thumbnails, batch editing, and the exact `ffmpeg` command for every job.
+- **Spanish and English UI**, dark and light themes, keyboard shortcuts.
+- **Headless CLI** for scripts and servers.
+
+| Tracks and subtitles | Formats | Light theme |
+| --- | --- | --- |
+| ![Tracks](docs/screenshots/tracks-dark.png) | ![Format picker](docs/screenshots/formats-dark.png) | ![Light theme](docs/screenshots/queue-light.png) |
+
+## Quick start
+
+### Desktop app
+
+Requires Python 3.11+, FFmpeg and Node.js 20+ (only to build the UI once).
+
+```bash
+make install   # venv + backend (editable) + UI dependencies
+make run       # builds the UI and opens the native window
+```
+
+On Linux the native window uses Qt WebEngine (installed by the `desktop` extra). Without it, Stallion opens in your default browser instead: `stallion desktop --browser`.
+
+### Docker / NAS
+
+```bash
+cp .env.example .env        # set STALLION_TOKEN and MEDIA_DIR
+docker compose up -d
+# open http://localhost:8000/auth?token=<STALLION_TOKEN>
+```
+
+The container runs as an unprivileged user, ships FFmpeg and subtitle fonts, and only sees the folder mounted at `/media`.
+
+### Command line
+
+```bash
+stallion presets                                    # list format ids
+stallion convert *.mkv -p mp4-h265 -o converted/ --max-height 1080 -j 2
+stallion convert talk.mp4 -p mp3 --subtitles none
+stallion serve --host 0.0.0.0 --media-root /srv/videos
+```
+
+`convert` exits non-zero when any file fails, so it composes well with scripts and cron.
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `STALLION_HOST` / `STALLION_PORT` | `127.0.0.1` / `8000` | Bind address for `stallion serve` |
+| `STALLION_TOKEN` | random, printed at start | Access token for the web UI and API |
+| `STALLION_AUTH` | `on` | `off` disables authentication (only behind a proxy that authenticates users) |
+| `STALLION_MEDIA_ROOTS` | home folder (+ `/media`, `/mnt`) | Folders the UI may read and write, separated by `:` (`;` on Windows) |
+| `STALLION_DATA_DIR` | platform data folder | Settings and thumbnail cache |
+| `STALLION_FFMPEG` / `STALLION_FFPROBE` | found in `PATH` | FFmpeg binaries |
+| `STALLION_ALLOWED_ORIGINS` | none | Extra origins allowed to open the WebSocket (reverse proxies) |
+| `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxies trusted for `X-Forwarded-*` headers |
+
+The desktop app picks a random port and token on every launch and passes them to its own window.
+
+## Security model
+
+- Every API call requires the token, sent as an `HttpOnly`, `SameSite=Strict` cookie or an `Authorization: Bearer` header. The WebSocket also checks the `Origin`.
+- File access is confined to the media roots after resolving `..` and symlinks, so URLs and other FFmpeg protocols never reach `ffmpeg`/`ffprobe`.
+- The FFmpeg binary is chosen by the server, never by the client.
+- FFmpeg runs with `-nostdin`, its output pipes are drained concurrently (no deadlocks on noisy input), and every child process is terminated on cancel, window close or shutdown.
+- Responses carry a strict Content-Security-Policy, `X-Frame-Options: DENY` and `nosniff`.
+
+## Development
+
+```bash
+make install
+make dev-api     # backend on :8000 with token "dev"
+make dev-ui      # Vite with hot reload → http://localhost:5173/auth?token=dev
+make check       # ruff + mypy + tsc + pytest
+```
+
+The test-suite runs every preset through real FFmpeg when it is installed; set `STALLION_SKIP_FFMPEG_TESTS=1` to run only the pure unit tests.
+
+```
+stallion/engine/   ffprobe/ffmpeg layer: presets (JSON), command builder, async runner
+stallion/jobs.py   queue: scheduling, pause/resume/cancel, change events
+stallion/api/      FastAPI REST + WebSocket, token auth, serves the web UI
+stallion/desktop.py  private local server + native window (pywebview)
+stallion/cli.py    `stallion` / `stallion serve` / `stallion convert`
+frontend/          React 19 + TypeScript + Tailwind CSS 4 + Radix UI (built into stallion/web/dist)
+legacy/            the original GTK + mencoder application, kept for reference
+```
+
+## Legacy version
+
+Stallion 3.x was a GTK interface for mencoder (2011–2014). It needs Python 2, mencoder and Ubuntu Unity, none of which are maintained anymore; its code is preserved in [`legacy/`](legacy/). Version 4 keeps its spirit (presets, subtitles, track selection, queue) on a modern FFmpeg engine.
 
 Copyright 2013-2014 Lino Alfonso <lino@lt.desoft.cu>
-
-## Modern MVP (new code)
-
-A new UI-agnostic core was added under `core/`:
-
-- `core/probe.py`: media metadata extraction with `ffprobe`.
-- `core/convert.py`: `ffmpeg` conversion with progress parsing (`-progress pipe:1`).
-- `core/models.py`: typed models for jobs, presets, and progress updates.
-- `core/cli.py`: CLI smoke path for end-to-end usage.
-- `core/web_api.py`: FastAPI app exposing probe and conversion endpoints (desktop/web reuse).
-
-## Run modern desktop UI
-
-A modern cross-platform desktop UI is available in `modern_ui.py` (Tkinter/ttk):
-
-- conversion queue,
-- per-job and total progress,
-- CRF + encoder preset controls,
-- real-time conversion status.
-
-```bash
-python modern_ui.py
-```
-
-## Run CLI
-
-```bash
-python -m core.cli input.mp4 output.mp4 --crf 23 --preset medium
-```
-
-## Run Web API (for web frontends)
-
-```bash
-uvicorn core.web_api:app --reload --port 8000
-```
-
-Endpoints:
-- `GET /health`
-- `POST /probe`
-- `POST /convert` (streaming progress events)
-
-## Requirements
-
-- Python 3.10+
-- `ffmpeg` and `ffprobe` installed on the system
-- Install Python deps:
-
-```bash
-pip install -r requirements.txt
-```
