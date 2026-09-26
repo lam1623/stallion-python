@@ -25,9 +25,13 @@ Modern video and audio converter powered by FFmpeg. The same web-based UI runs a
 - **Spanish and English UI**, light theme by default with an optional dark mode, keyboard shortcuts.
 - **Headless CLI** for scripts and servers.
 
-| Tracks and subtitles | Formats | Dark mode |
+| Table view | Activity monitor | Tracks and subtitles |
 | --- | --- | --- |
-| ![Tracks](docs/screenshots/tracks-light.png) | ![Formats](docs/screenshots/formats-light.png) | ![Dark mode](docs/screenshots/queue-dark.png) |
+| ![Table view with the options underneath](docs/screenshots/table-light.png) | ![CPU and GPU monitor](docs/screenshots/monitor-light.png) | ![Tracks](docs/screenshots/tracks-light.png) |
+
+| Formats | Format editor | Dark mode |
+| --- | --- | --- |
+| ![Formats with their parameters and command](docs/screenshots/formats-light.png) | ![Format editor](docs/screenshots/editor-light.png) | ![Dark mode](docs/screenshots/queue-dark.png) |
 
 ## Quick start
 
