@@ -132,7 +132,7 @@ export function ProgressBar({
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={indeterminate ? undefined : Math.round(width)}
-      className={cn("relative h-1.5 overflow-hidden rounded-full bg-elevated", className)}
+      className={cn("relative h-1.5 overflow-hidden rounded-full bg-fg/8", className)}
     >
       {indeterminate ? (
         <div className="absolute inset-y-0 w-2/5 rounded-full bg-brand animate-indeterminate" />

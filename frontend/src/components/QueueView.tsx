@@ -4,45 +4,64 @@ import {
   Eraser,
   FilePlus2,
   FolderPlus,
+  LayoutList,
   ListChecks,
   MoreHorizontal,
   Pause,
   Play,
   Plus,
+  Rows3,
+  Search,
+  SearchX,
   Trash2,
+  X,
 } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { type MouseEvent, useEffect, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { addFiles, addFolder, clearQueue, removeJobs, toggleQueue } from "@/lib/actions";
-import { formatBytes, formatRelative } from "@/lib/format";
-import { useLang, useT } from "@/lib/i18n";
-import { useStore } from "@/lib/store";
-import { ActivityMonitor } from "./monitor/ActivityMonitor";
+import { formatBytes } from "@/lib/format";
+import { type TranslationKey, useLang, useT } from "@/lib/i18n";
+import { type QueueFilter, type QueueLayout, useStore, visibleOrder } from "@/lib/store";
 import { cn, isMac } from "@/lib/utils";
-import { Inspector } from "./inspector/Inspector";
-import { JobCard } from "./JobCard";
+import { InspectorDrawer, InspectorSheet } from "./inspector/Inspector";
+import { ActivityStrip } from "./queue/ActivityStrip";
+import { JobColumns, JobRow } from "./queue/JobRow";
+import { StatusBar } from "./queue/StatusBar";
 import { Button } from "./ui/button";
-import { Badge, Kbd, ProgressBar } from "./ui/misc";
+import { Segmented } from "./ui/controls";
+import { Badge, Kbd } from "./ui/misc";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tip } from "./ui/overlay";
 
 const MOD = isMac ? "⌘" : "Ctrl";
+const SEARCH_ID = "queue-search";
 
 function useQueueShortcuts() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // Open dropdowns and dialogs handle Escape/arrows themselves and mark the event as handled
       if (event.defaultPrevented) return;
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select, [contenteditable='true'], [role='dialog'], [role='menu']")) return;
       const store = useStore.getState();
-      if (store.view !== "queue" || store.browser) return;
+      if (store.view !== "queue" || store.browser || !store.order.length) return;
       const mod = event.metaKey || event.ctrlKey;
       const key = event.key.toLowerCase();
+      if (mod && key === "f") {
+        event.preventDefault();
+        const input = document.getElementById(SEARCH_ID) as HTMLInputElement | null;
+        input?.focus();
+        input?.select();
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true'], [role='dialog'], [role='menu']")) return;
+      // Inside the options panel only Escape (close) belongs to the queue
+      if (target?.closest("[data-inspector]") && event.key !== "Escape") return;
+      const shown = visibleOrder(store);
       if (mod && key === "o") {
         event.preventDefault();
         void addFiles();
       } else if (mod && key === "a") {
         event.preventDefault();
-        store.setSelection(store.order);
+        store.setSelection(shown);
       } else if (event.key === "Delete" || (isMac && event.key === "Backspace")) {
         const removable = store.selected.filter((id) => {
           const status = store.jobs[id]?.status;
@@ -53,13 +72,23 @@ function useQueueShortcuts() {
           void removeJobs(removable);
         }
       } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        if (!store.order.length) return;
+        if (!shown.length) return;
         event.preventDefault();
-        const current = store.order.indexOf(store.selected[store.selected.length - 1] ?? "");
-        const next = event.key === "ArrowDown" ? Math.min(store.order.length - 1, current + 1) : Math.max(0, current - 1);
-        store.select(store.order[next === -1 ? 0 : next], event.shiftKey ? "range" : "single");
-        document.querySelector(`[data-job-id="${store.order[next]}"]`)?.scrollIntoView({ block: "nearest" });
-      } else if (event.key === "Escape") {
+        const last = store.selected[store.selected.length - 1];
+        const current = last ? shown.indexOf(last) : -1;
+        const next =
+          current === -1
+            ? 0
+            : event.key === "ArrowDown"
+              ? Math.min(shown.length - 1, current + 1)
+              : Math.max(0, current - 1);
+        const id = shown[next];
+        if (event.shiftKey) store.select(id, "range");
+        else store.setSelection([id]);
+        const row = document.querySelector<HTMLElement>(`[data-job-id="${id}"]`);
+        row?.scrollIntoView({ block: "nearest" });
+        row?.focus({ preventScroll: true });
+      } else if (event.key === "Escape" && store.selected.length) {
         store.setSelection([]);
       }
     };
@@ -86,7 +115,7 @@ function QueueHeader() {
   const removable = selected.filter((id) => jobs[id] && jobs[id].status !== "running" && jobs[id].status !== "paused");
 
   return (
-    <header className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-4">
+    <header className="flex flex-wrap items-center gap-3 px-6 pb-3 pt-4">
       <div className="min-w-0 flex-1">
         <h1 className="text-lg font-semibold tracking-tight text-fg">{t("queue.title")}</h1>
         <p className="text-[13px] text-muted tabular">
@@ -139,7 +168,11 @@ function QueueHeader() {
             </Button>
           </MenuTrigger>
           <MenuContent>
-            <MenuItem icon={<ListChecks />} shortcut={`${MOD}+A`} onSelect={() => setSelection(order)}>
+            <MenuItem
+              icon={<ListChecks />}
+              shortcut={`${MOD}+A`}
+              onSelect={() => setSelection(visibleOrder(useStore.getState()))}
+            >
               {t("queue.selectAll")}
             </MenuItem>
             <MenuItem
@@ -168,65 +201,183 @@ function QueueHeader() {
   );
 }
 
-function QueueFooter() {
+const FILTERS: { value: QueueFilter; label: TranslationKey }[] = [
+  { value: "all", label: "queue.filter.all" },
+  { value: "active", label: "queue.filter.active" },
+  { value: "queued", label: "queue.filter.queued" },
+  { value: "completed", label: "queue.filter.completed" },
+  { value: "failed", label: "queue.filter.failed" },
+  { value: "canceled", label: "queue.filter.canceled" },
+];
+
+/** Proposal C: status chips, search and the cards/table switch. */
+function QueueToolbar() {
   const t = useT();
-  const jobs = useStore((s) => s.jobs);
-  const order = useStore((s) => s.order);
-  const queue = useStore((s) => s.queue);
+  const counts = useStore((s) => s.queue.counts);
+  const total = useStore((s) => s.order.length);
+  const filter = useStore((s) => s.queueFilter);
+  const query = useStore((s) => s.queueQuery);
+  const layout = useStore((s) => s.layout);
+  const setFilter = useStore((s) => s.setQueueFilter);
+  const setQuery = useStore((s) => s.setQueueQuery);
+  const setLayout = useStore((s) => s.setLayout);
 
-  const stats = useMemo(() => {
-    let weight = 0;
-    let done = 0;
-    let remaining = 0;
-    let speed = 0;
-    let total = 0;
-    let completed = 0;
-    for (const id of order) {
-      const job = jobs[id];
-      if (!job || job.status === "canceled" || job.status === "failed") continue;
-      const duration = Math.max(job.media.duration_s, 1);
-      const percent = job.status === "completed" ? 100 : job.progress.percent;
-      total += 1;
-      weight += duration;
-      done += (duration * percent) / 100;
-      if (job.status === "completed") completed += 1;
-      else remaining += duration * (1 - percent / 100);
-      if (job.status === "running" && job.progress.speed) speed += job.progress.speed;
-    }
-    return {
-      percent: weight ? (done / weight) * 100 : 0,
-      eta: speed > 0 ? remaining / speed : null,
-      total,
-      completed,
-    };
-  }, [jobs, order]);
-
-  const active = queue.counts.running + queue.counts.paused;
-  const status = queue.running ? t("footer.active", { count: active }) : active ? t("footer.paused") : t("footer.idle");
+  const count = (value: QueueFilter) =>
+    value === "all" ? total : value === "active" ? counts.running + counts.paused : counts[value];
 
   return (
-    <footer className="border-t border-border bg-panel/70 px-6 py-2 backdrop-blur">
-      <div className="mx-auto flex max-w-5xl items-center gap-4">
-        <ActivityMonitor className="-ml-2.5" />
-        <span className="w-12 shrink-0 whitespace-nowrap text-sm font-semibold text-fg tabular">{Math.floor(stats.percent)} %</span>
-        <ProgressBar
-          value={stats.percent}
-          status={queue.running ? "running" : stats.percent >= 100 ? "completed" : "queued"}
-          className="h-2 flex-1"
-        />
-        <div className="flex shrink-0 items-center gap-2 text-xs text-muted tabular">
-          <span>{t("footer.counts", { done: stats.completed, total: stats.total })}</span>
-          <span className="text-subtle">·</span>
-          <span className={cn(queue.running && "text-accent")}>{status}</span>
-          {queue.running && stats.eta != null && (
-            <>
-              <span className="text-subtle">·</span>
-              <span>{t("footer.eta", { time: formatRelative(stats.eta) })}</span>
-            </>
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-6 pb-3">
+      <div role="group" aria-label={t("queue.filters")} className="flex min-w-0 flex-wrap items-center gap-1.5">
+        {FILTERS.map(({ value, label }) => {
+          const n = count(value);
+          // Chips for empty states only clutter the bar
+          if (!n && value !== "all" && value !== filter) return null;
+          const active = filter === value;
+          return (
+            <button
+              key={value}
+              aria-pressed={active}
+              onClick={() => setFilter(value)}
+              className={cn(
+                "flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-ring",
+                active
+                  ? "border-fg bg-fg text-bg"
+                  : "border-border bg-surface text-muted shadow-card hover:border-border-strong hover:text-fg",
+              )}
+            >
+              {t(label)}
+              <span className={cn("tabular", active ? "text-bg/70" : "text-subtle")}>{n}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="ml-auto flex items-center gap-2">
+        <div className="flex h-8 w-44 items-center gap-2 rounded-lg border border-border bg-surface px-2.5 shadow-card transition focus-within:border-accent focus-within:ring-2 focus-within:ring-ring lg:w-64">
+          <Search className="size-3.5 shrink-0 text-subtle" />
+          <input
+            id={SEARCH_ID}
+            type="search"
+            value={query}
+            placeholder={t("queue.search")}
+            aria-label={t("queue.search")}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              event.preventDefault();
+              if (query) setQuery("");
+              else event.currentTarget.blur();
+            }}
+            className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-fg outline-none placeholder:text-subtle [&::-webkit-search-cancel-button]:hidden"
+          />
+          {query ? (
+            <button
+              onClick={() => setQuery("")}
+              aria-label={t("queue.clearSearch")}
+              className="grid size-5 shrink-0 place-items-center rounded text-subtle outline-none hover:text-fg focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X className="size-3.5" />
+            </button>
+          ) : (
+            <Kbd className="hidden h-[18px] text-[10px] shadow-none lg:inline-flex">{MOD}+F</Kbd>
           )}
         </div>
+        <Segmented<QueueLayout>
+          size="sm"
+          aria-label={t("queue.layout")}
+          value={layout}
+          onValueChange={setLayout}
+          className="h-8 items-center"
+          options={[
+            {
+              value: "cards",
+              label: (
+                <>
+                  <LayoutList />
+                  <span className="hidden xl:inline">{t("queue.layout.cards")}</span>
+                </>
+              ),
+              hint: t("queue.layout.cards"),
+            },
+            {
+              value: "table",
+              label: (
+                <>
+                  <Rows3 />
+                  <span className="hidden xl:inline">{t("queue.layout.table")}</span>
+                </>
+              ),
+              hint: t("queue.layout.table"),
+            },
+          ]}
+        />
       </div>
-    </footer>
+    </div>
+  );
+}
+
+function NoMatch() {
+  const t = useT();
+  const setFilter = useStore((s) => s.setQueueFilter);
+  const setQuery = useStore((s) => s.setQueueQuery);
+  return (
+    <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
+      <div className="grid size-12 place-items-center rounded-2xl bg-elevated text-subtle">
+        <SearchX className="size-5" />
+      </div>
+      <div>
+        <p className="text-sm font-medium text-fg">{t("queue.noMatch")}</p>
+        <p className="mt-1 text-[13px] text-muted">{t("queue.noMatchHint")}</p>
+      </div>
+      <Button
+        size="sm"
+        onClick={() => {
+          setFilter("all");
+          setQuery("");
+        }}
+      >
+        {t("queue.showAll")}
+      </Button>
+    </div>
+  );
+}
+
+function JobList({ layout }: { layout: QueueLayout }) {
+  const t = useT();
+  const shown = useStore(useShallow(visibleOrder));
+  const nothingSelected = useStore((s) => s.selected.length === 0);
+  const setSelection = useStore((s) => s.setSelection);
+  const table = layout === "table";
+
+  // A click on empty space (not on a file, not inside a popup) closes the options
+  const onBackground = (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target as Element;
+    if (!event.currentTarget.contains(target) || target.closest("[role='option'], button, a, input")) return;
+    setSelection([]);
+  };
+
+  return (
+    <div className={cn("@container min-h-0 flex-1 overflow-y-auto", table && "bg-surface")} onClick={onBackground}>
+      {shown.length === 0 ? (
+        <NoMatch />
+      ) : (
+        <div className={cn(!table && "px-6 pb-6")}>
+          <JobColumns layout={layout} />
+          <div
+            role="listbox"
+            aria-multiselectable
+            aria-label={t("queue.title")}
+            className={cn(!table && "flex flex-col gap-2")}
+          >
+            {shown.map((id) => (
+              <JobRow key={id} id={id} layout={layout} />
+            ))}
+          </div>
+          {nothingSelected && (
+            <p className={cn("text-center text-xs text-subtle", table ? "py-5" : "pt-5")}>{t("queue.hint")}</p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -237,7 +388,7 @@ function EmptyState() {
   const formatCount = useStore((s) => s.presets.length);
   const [before, after] = t("empty.shortcut", { keys: "§" }).split("§");
   return (
-    <div className="flex flex-1 items-center justify-center overflow-y-auto p-8">
+    <div className="flex flex-1 items-center justify-center overflow-y-auto border-t border-border p-8">
       <div className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-dashed border-border-strong bg-surface/60 px-8 py-14 text-center sm:px-12">
         <div
           aria-hidden
@@ -276,30 +427,37 @@ function EmptyState() {
   );
 }
 
+/**
+ * Cards (proposal A): activity strip on top, options slide in from the right, optionally pinned.
+ * Table (proposal C): dense rows, options open underneath, slim status bar at the bottom.
+ */
 export function QueueView() {
-  const order = useStore((s) => s.order);
+  const hasJobs = useStore((s) => s.order.length > 0);
+  const layout = useStore((s) => s.layout);
+  const pinned = useStore((s) => s.pinned);
   useQueueShortcuts();
-  const hasJobs = order.length > 0;
+  const cards = layout === "cards";
+
   return (
     <div className="flex min-w-0 flex-1">
       <section className="flex min-w-0 flex-1 flex-col">
         <QueueHeader />
         {hasJobs ? (
-          <div role="listbox" aria-multiselectable className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-            <div className="mx-auto flex max-w-5xl flex-col gap-2.5">
-              {order.map((id) => (
-                <div key={id} data-job-id={id}>
-                  <JobCard id={id} />
-                </div>
-              ))}
+          <>
+            <QueueToolbar />
+            <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+              {cards && <ActivityStrip />}
+              <JobList layout={layout} />
+              {cards && !pinned && <InspectorDrawer docked={false} />}
             </div>
-          </div>
+            {!cards && <InspectorSheet />}
+            {!cards && <StatusBar />}
+          </>
         ) : (
           <EmptyState />
         )}
-        {hasJobs && <QueueFooter />}
       </section>
-      {hasJobs && <Inspector />}
+      {hasJobs && cards && pinned && <InspectorDrawer docked />}
     </div>
   );
 }

@@ -103,12 +103,21 @@ def cpu_model() -> str:
     return platform.processor() or platform.machine()
 
 
+# nvidia-smi attempts before deciding there is no usable NVIDIA driver
+_SMI_PROBES = 3
+# Once it has answered, missed readings (driver busy, machine under load) reuse the last one
+_SMI_STALE = 5
+
+
 class GpuReader:
     """Current usage of the main GPU, or None when no supported GPU is present."""
 
     def __init__(self, drm_root: Path = DRM_ROOT) -> None:
         self._smi = shutil.which("nvidia-smi")
         self._fields = _NVIDIA_FIELDS
+        self._smi_ok = False
+        self._misses = 0
+        self._last: dict[str, Any] | None = None
         cards = find_drm_gpus(drm_root) if sys.platform.startswith("linux") else []
         self._amd = next((path for vendor, path in cards if vendor == "amd"), None)
         self._intel = next((path for vendor, path in cards if vendor == "intel"), None)
@@ -126,14 +135,29 @@ class GpuReader:
 
     async def _nvidia(self) -> dict[str, Any] | None:
         assert self._smi
-        text = await _output([self._smi, f"--query-gpu={self._fields}", "--format=csv,noheader,nounits"])
-        if text is None and self._fields == _NVIDIA_FIELDS:
-            self._fields = _NVIDIA_BASIC_FIELDS
-            text = await _output([self._smi, f"--query-gpu={self._fields}", "--format=csv,noheader,nounits"])
-        stats = parse_nvidia_smi(text, self._fields) if text else None
-        if stats is None:
-            self._smi = None  # no usable NVIDIA driver: stop asking
-        return stats
+        stats = await self._query(self._fields)
+        if stats is None and not self._smi_ok and self._fields == _NVIDIA_FIELDS:
+            # Older drivers reject the encoder/decoder fields: settle on the basic set
+            stats = await self._query(_NVIDIA_BASIC_FIELDS)
+            if stats is not None:
+                self._fields = _NVIDIA_BASIC_FIELDS
+        if stats is not None:
+            self._smi_ok = True
+            self._misses = 0
+            self._last = stats
+            return stats
+        self._misses += 1
+        if not self._smi_ok:
+            if self._misses >= _SMI_PROBES:
+                self._smi = None  # no usable NVIDIA driver: stop asking
+            return None
+        # A known GPU does not vanish because one reading failed
+        return self._last if self._misses <= _SMI_STALE else None
+
+    async def _query(self, fields: str) -> dict[str, Any] | None:
+        assert self._smi
+        text = await _output([self._smi, f"--query-gpu={fields}", "--format=csv,noheader,nounits"])
+        return parse_nvidia_smi(text, fields) if text else None
 
 
 async def _output(argv: list[str], time_limit: float = 3.0) -> str | None:

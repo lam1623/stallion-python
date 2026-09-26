@@ -323,33 +323,36 @@ export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) 
 
   const outputDir = options.output_dir ?? settings?.output_dir ?? null;
 
+  // One column in the side panel; two or three when the bottom sheet gives it the width
   return (
-    <div className="space-y-6">
-      <Field label={t("opt.format")}>
-        <button
-          onClick={() => setPickerOpen(true)}
-          disabled={locked}
-          className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface p-3 text-left shadow-card outline-none transition hover:border-border-strong focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-        >
-          <PresetIcon preset={preset} />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold text-fg">{localized(preset.name, lang)}</div>
-            <div className="truncate text-xs text-muted">{localized(preset.description, lang)}</div>
+    <div className="grid grid-cols-1 items-start gap-x-10 gap-y-6 @3xl:grid-cols-2 @5xl:grid-cols-3">
+      <div className="space-y-6">
+        <Field label={t("opt.format")}>
+          <button
+            onClick={() => setPickerOpen(true)}
+            disabled={locked}
+            className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface p-3 text-left shadow-card outline-none transition hover:border-border-strong focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+          >
+            <PresetIcon preset={preset} />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold text-fg">{localized(preset.name, lang)}</div>
+              <div className="truncate text-xs text-muted">{localized(preset.description, lang)}</div>
+            </div>
+            <span className="text-xs font-semibold text-accent">{t("opt.change")}</span>
+          </button>
+          <div className="flex flex-wrap gap-1">
+            <Badge>{preset.extension}</Badge>
+            {preset.tags.map((tag) => (
+              <Badge key={tag}>{tag}</Badge>
+            ))}
           </div>
-          <span className="text-xs font-semibold text-accent">{t("opt.change")}</span>
-        </button>
-        <div className="flex flex-wrap gap-1">
-          <Badge>{preset.extension}</Badge>
-          {preset.tags.map((tag) => (
-            <Badge key={tag}>{tag}</Badge>
-          ))}
-        </div>
-      </Field>
+        </Field>
 
-      {preset.remux && <Note>{t("opt.remuxNote")}</Note>}
-      {preset.category === "editing" && <Note>{t("opt.editingNote")}</Note>}
-      {!preset.audio && !!spec?.fps && <Note>{t("opt.animationNote", { fps: spec.fps })}</Note>}
-      {hdrNote && <Note>{hdrNote}</Note>}
+        {preset.remux && <Note>{t("opt.remuxNote")}</Note>}
+        {preset.category === "editing" && <Note>{t("opt.editingNote")}</Note>}
+        {!preset.audio && !!spec?.fps && <Note>{t("opt.animationNote", { fps: spec.fps })}</Note>}
+        {hdrNote && <Note>{hdrNote}</Note>}
+      </div>
 
       {(showQuality || showSize || spec?.speed_family || showResolution) && (
         <div className="space-y-5">
@@ -386,64 +389,66 @@ export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) 
         </div>
       )}
 
-      {preset.audio && hasAudio && !preset.remux && (
-        <div className="space-y-5">
-          <SectionTitle>{t("opt.audio")}</SectionTitle>
-          {preset.audio.bitrate_choices.length > 0 && (
-            <Field label={t("opt.audioBitrate")}>
-              <Select
-                aria-label={t("opt.audioBitrate")}
-                value={String(options.audio_bitrate_kbps ?? preset.audio.bitrate_kbps)}
+      <div className="space-y-6">
+        {preset.audio && hasAudio && !preset.remux && (
+          <div className="space-y-5">
+            <SectionTitle>{t("opt.audio")}</SectionTitle>
+            {preset.audio.bitrate_choices.length > 0 && (
+              <Field label={t("opt.audioBitrate")}>
+                <Select
+                  aria-label={t("opt.audioBitrate")}
+                  value={String(options.audio_bitrate_kbps ?? preset.audio.bitrate_kbps)}
+                  disabled={locked}
+                  options={preset.audio.bitrate_choices.map((kbps) => ({ value: String(kbps), label: `${kbps} kb/s` }))}
+                  onValueChange={(value) => update({ audio_bitrate_kbps: Number(value) })}
+                />
+              </Field>
+            )}
+            <VolumeField value={options.volume_db} disabled={locked} onCommit={(volume_db) => update({ volume_db })} />
+            <label className="flex items-center justify-between gap-4">
+              <span>
+                <span className="block text-[13px] font-medium text-fg">{t("opt.normalize")}</span>
+                <span className="block text-xs text-subtle">{t("opt.normalizeHint")}</span>
+              </span>
+              <Switch
+                checked={options.normalize_audio}
                 disabled={locked}
-                options={preset.audio.bitrate_choices.map((kbps) => ({ value: String(kbps), label: `${kbps} kb/s` }))}
-                onValueChange={(value) => update({ audio_bitrate_kbps: Number(value) })}
+                onCheckedChange={(normalize_audio) => update({ normalize_audio })}
               />
-            </Field>
-          )}
-          <VolumeField value={options.volume_db} disabled={locked} onCommit={(volume_db) => update({ volume_db })} />
-          <label className="flex items-center justify-between gap-4">
-            <span>
-              <span className="block text-[13px] font-medium text-fg">{t("opt.normalize")}</span>
-              <span className="block text-xs text-subtle">{t("opt.normalizeHint")}</span>
-            </span>
-            <Switch
-              checked={options.normalize_audio}
-              disabled={locked}
-              onCheckedChange={(normalize_audio) => update({ normalize_audio })}
-            />
-          </label>
-        </div>
-      )}
-
-      <div className="space-y-5">
-        <SectionTitle>{t("opt.destination")}</SectionTitle>
-        <div className="flex items-center gap-2 rounded-xl border border-border bg-surface p-2 pl-3 shadow-card">
-          <Folder className="size-4 shrink-0 text-subtle" />
-          <span className="min-w-0 flex-1 truncate text-[13px] text-fg" title={outputDir ?? undefined}>
-            {outputDir ?? t("opt.nextToOriginal")}
-          </span>
-          {options.output_dir && (
-            <Button variant="ghost" size="xs" disabled={locked} onClick={() => update({ output_dir: null })}>
-              {t("opt.reset")}
-            </Button>
-          )}
-          <Button
-            size="xs"
-            disabled={locked}
-            onClick={async () => {
-              const [dir] = await pickPaths("folder");
-              if (dir) update({ output_dir: dir });
-            }}
-          >
-            {t("opt.change")}
-          </Button>
-        </div>
-        {!multi && <FileNameField job={job} preset={preset} disabled={locked} />}
-        {!multi && (
-          <p className="break-all text-xs text-subtle" title={job.output_path}>
-            {t("opt.outputPath", { path: job.output_path })}
-          </p>
+            </label>
+          </div>
         )}
+
+        <div className="space-y-5">
+          <SectionTitle>{t("opt.destination")}</SectionTitle>
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-surface p-2 pl-3 shadow-card">
+            <Folder className="size-4 shrink-0 text-subtle" />
+            <span className="min-w-0 flex-1 truncate text-[13px] text-fg" title={outputDir ?? undefined}>
+              {outputDir ?? t("opt.nextToOriginal")}
+            </span>
+            {options.output_dir && (
+              <Button variant="ghost" size="xs" disabled={locked} onClick={() => update({ output_dir: null })}>
+                {t("opt.reset")}
+              </Button>
+            )}
+            <Button
+              size="xs"
+              disabled={locked}
+              onClick={async () => {
+                const [dir] = await pickPaths("folder");
+                if (dir) update({ output_dir: dir });
+              }}
+            >
+              {t("opt.change")}
+            </Button>
+          </div>
+          {!multi && <FileNameField job={job} preset={preset} disabled={locked} />}
+          {!multi && (
+            <p className="break-all text-xs text-subtle" title={job.output_path}>
+              {t("opt.outputPath", { path: job.output_path })}
+            </p>
+          )}
+        </div>
       </div>
 
       <PresetPicker

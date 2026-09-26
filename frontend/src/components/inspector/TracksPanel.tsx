@@ -282,7 +282,7 @@ export function TracksPanel({ job, locked }: { job: Job; locked: boolean }) {
   };
 
   return (
-    <div className="space-y-7">
+    <div className="grid grid-cols-1 items-start gap-x-10 gap-y-7 @3xl:grid-cols-2">
       <section className="space-y-3">
         <SectionTitle>{t("tracks.audio")}</SectionTitle>
         {!media.audio.length ? (

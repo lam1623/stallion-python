@@ -44,46 +44,52 @@ function binned(cores: number[], max: number): number[] {
   return out;
 }
 
-/** One vertical meter per logical core; the bar is the hover/focus target for its tooltip. */
+const BAR_SIZES = {
+  // status bar: a few pixels per core, groups beyond 16
+  sm: { max: 16, box: "h-5 gap-0.5", bar: "h-5 w-[5px] flex-none rounded-t-[2px]" },
+  // activity strip
+  md: { max: 24, box: "h-14 flex-none gap-[3px]", bar: "h-full w-2 flex-none rounded-t-[3px]" },
+  // monitor panel: every core
+  lg: { max: Infinity, box: "h-24 gap-[3px]", bar: "h-full min-w-1.5 max-w-6 rounded-t-[4px]" },
+} as const;
+
+/** One vertical meter per logical core (or group of cores); each bar has its own tooltip. */
 export function CoreBars({
   cores,
-  compact = false,
+  size = "lg",
   className,
 }: {
   cores: number[];
-  compact?: boolean;
+  size?: keyof typeof BAR_SIZES;
   className?: string;
 }) {
   const t = useT();
-  const values = compact ? binned(cores, 16) : cores;
-  const grouped = compact && values.length < cores.length;
+  const spec = BAR_SIZES[size];
+  const values = binned(cores, spec.max);
+  const grouped = values.length < cores.length;
   return (
-    <div
-      className={cn("flex items-end", compact ? "h-5 gap-0.5" : "h-24 gap-[3px]", className)}
-      role="group"
-      aria-label={t("mon.cores", { count: cores.length })}
-    >
+    <div className={cn("flex items-end", spec.box, className)} role="group" aria-label={t("mon.cores", { count: cores.length })}>
       {values.map((value, index) => {
         const label = grouped ? t("mon.coreGroup", { n: index + 1 }) : t("mon.core", { n: index + 1 });
         const bar = (
-          <div
-            key={index}
-            className={cn(
-              "relative flex-1 overflow-hidden rounded-t-[4px]",
-              compact ? "h-5 w-[5px] flex-none rounded-t-[2px]" : "h-full max-w-6 min-w-1.5",
-              TRACK.cpu,
-            )}
-          >
+          <div key={index} className={cn("relative flex-1 overflow-hidden", spec.bar, TRACK.cpu)}>
             <div
               className={cn("absolute inset-x-0 bottom-0 transition-[height] duration-700 ease-out", FILL.cpu)}
               style={{ height: `${Math.max(0, Math.min(100, value))}%` }}
             />
           </div>
         );
-        if (compact) return bar;
+        // The status bar readout is one button: no per-core focus stops inside it
+        if (size === "sm") return bar;
         return (
           <Tip key={index} content={`${label} · ${percent(value)}`}>
-            <div tabIndex={0} className="flex h-full min-w-1.5 max-w-6 flex-1 items-end outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <div
+              tabIndex={0}
+              className={cn(
+                "flex h-full items-end outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                size === "md" ? "w-2 flex-none" : "min-w-1.5 max-w-6 flex-1",
+              )}
+            >
               {bar}
             </div>
           </Tip>
@@ -99,18 +105,23 @@ export function HistoryChart({
   times,
   color,
   label,
+  compact = false,
+  className,
 }: {
   values: number[];
   times: number[];
   color: VizColor;
   label: string;
+  /** Sparkline: shorter, baseline only, no captions */
+  compact?: boolean;
+  className?: string;
 }) {
   const t = useT();
   const [hover, setHover] = useState<number | null>(null);
   const latest = times[times.length - 1] ?? 0;
   const secondsBefore = (index: number) => Math.round((latest - times[index]) / 1000);
   const width = 300;
-  const height = 88;
+  const height = compact ? 56 : 88;
   const step = width / (HISTORY_SIZE - 1);
   const x = (index: number) => width - (values.length - 1 - index) * step;
   const y = (value: number) => height - (Math.max(0, Math.min(100, value)) / 100) * height;
@@ -127,18 +138,18 @@ export function HistoryChart({
   };
 
   return (
-    <figure className="m-0 space-y-1.5">
+    <figure className={cn("m-0 space-y-1.5", className)}>
       <div className="relative">
         <svg
           viewBox={`0 0 ${width} ${height}`}
           preserveAspectRatio="none"
-          className="block h-[88px] w-full touch-none overflow-visible"
+          className={cn("block w-full touch-none overflow-visible", compact ? "h-14" : "h-[88px]")}
           role="img"
           aria-label={`${label}: ${percent(values[values.length - 1])}`}
           onPointerMove={onMove}
           onPointerLeave={() => setHover(null)}
         >
-          {[0, 50, 100].map((tick) => (
+          {(compact ? [0] : [0, 50, 100]).map((tick) => (
             <line key={tick} x1={0} x2={width} y1={y(tick)} y2={y(tick)} stroke="var(--border)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
           ))}
           {values.length > 1 && (
@@ -168,12 +179,16 @@ export function HistoryChart({
             </span>
           </>
         )}
-        <span className="pointer-events-none absolute left-0 top-0 text-[10px] leading-none text-subtle">100 %</span>
+        {!compact && (
+          <span className="pointer-events-none absolute left-0 top-0 text-[10px] leading-none text-subtle">100 %</span>
+        )}
       </div>
-      <figcaption className="flex justify-between text-[11px] text-subtle">
-        <span>{values.length > 1 ? t("mon.ago", { s: secondsBefore(0) }) : ""}</span>
-        <span>{t("mon.now")}</span>
-      </figcaption>
+      {!compact && (
+        <figcaption className="flex justify-between text-[11px] text-subtle">
+          <span>{values.length > 1 ? t("mon.ago", { s: secondsBefore(0) }) : ""}</span>
+          <span>{t("mon.now")}</span>
+        </figcaption>
+      )}
     </figure>
   );
 }

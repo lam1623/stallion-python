@@ -70,6 +70,33 @@ async def test_gpu_reader_prefers_amd_over_intel(tmp_path: Path, monkeypatch: py
     assert await GpuReader(tmp_path / "missing").read() is None
 
 
+@pytest.mark.anyio
+@pytest.mark.skipif(sys.platform == "win32", reason="stands in a shell script for nvidia-smi")
+async def test_nvidia_readings_survive_a_failed_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    down = tmp_path / "down"
+    smi = tmp_path / "nvidia-smi"
+    smi.write_text(f'#!/bin/sh\n[ -e "{down}" ] && exit 9\necho "RTX 3060, 40, 30, 5, 1000, 12288"\n')
+    smi.chmod(0o755)
+    monkeypatch.setattr(
+        "stallion.monitor.shutil.which", lambda name: str(smi) if name == "nvidia-smi" else None
+    )
+
+    reader = GpuReader(tmp_path / "no-drm")
+    first = await reader.read()
+    assert first is not None and first["util"] == 40 and first["encoder"] == 30
+    down.touch()  # the driver misses a reading, e.g. with the machine at full load
+    assert await reader.read() == first
+    down.unlink()
+    assert (await reader.read() or {})["util"] == 40
+
+    # Without a working driver it stops asking after a few attempts
+    down.touch()
+    broken = GpuReader(tmp_path / "no-drm")
+    for _ in range(3):
+        assert await broken.read() is None
+    assert broken._smi is None
+
+
 class _NoGpu(GpuReader):
     async def read(self) -> None:
         return None

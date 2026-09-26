@@ -46,9 +46,9 @@ export function LogPanel({ job }: { job: Job }) {
   }, [job.id, job.status, optionsKey]);
 
   return (
-    <div className="space-y-5">
+    <div className="grid grid-cols-1 items-start gap-x-8 gap-y-5 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
       {job.error && (
-        <div className="flex gap-3 rounded-xl border border-danger/25 bg-danger/10 p-3.5 text-[13px] text-danger">
+        <div className="flex gap-3 rounded-xl border border-danger/25 bg-danger/10 p-3.5 text-[13px] text-danger @3xl:col-span-2">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <div className="min-w-0">
             <div className="font-semibold">{t("log.error")}</div>
