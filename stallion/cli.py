@@ -18,6 +18,7 @@ from .config import (
     default_data_dir,
     default_media_roots,
     gpu_detection_from_env,
+    ui_autobuild_from_env,
 )
 from .engine.custom import CustomPresetStore
 from .engine.ffmpeg import FFmpegInfo, FFmpegNotFoundError, discover
@@ -25,6 +26,7 @@ from .engine.presets import CATEGORY_ORDER, PresetCatalog
 from .fs import FileSystem, filesystem_roots
 from .jobs import JobManager, JobStatus, ManagerError
 from .settings import Settings, SettingsStore
+from .web import ensure_built
 
 
 def _common(parser: argparse.ArgumentParser) -> None:
@@ -115,6 +117,7 @@ def cmd_desktop(args: argparse.Namespace) -> int:
     from .desktop import run_desktop
 
     _setup_logging(args.log_level)
+    ensure_built(enabled=ui_autobuild_from_env())
     return run_desktop(_config(args, desktop=True), prefer_browser=args.browser)
 
 
@@ -124,6 +127,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     from .api import create_app
 
     _setup_logging(args.log_level)
+    ensure_built(enabled=ui_autobuild_from_env())
     config = _config(args, desktop=False)
     config.host, config.port = args.host, args.port
     auth = auth_enabled_from_env() and not args.no_auth

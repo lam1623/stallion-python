@@ -75,3 +75,9 @@ def auth_enabled_from_env() -> bool:
 
 def gpu_detection_from_env() -> bool:
     return _env_bool("STALLION_HWENC", True)
+
+
+def ui_autobuild_from_env() -> bool:
+    """Rebuild a source checkout's web UI at startup when ``frontend/`` changed."""
+
+    return _env_bool("STALLION_AUTOBUILD", True)

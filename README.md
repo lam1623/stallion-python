@@ -44,13 +44,15 @@ make install   # venv + backend (editable) + UI dependencies
 make run       # builds the UI and opens the native window
 ```
 
+After a `git pull`, run `make run` again: it reinstalls changed dependencies, and `stallion` rebuilds the UI whenever `frontend/` changed since the last build.
+
 On Linux the native window uses Qt WebEngine (installed by the `desktop` extra). Without it, Stallion opens in your default browser instead: `stallion desktop --browser`.
 
 ### Docker / NAS
 
 ```bash
 cp .env.example .env        # set STALLION_TOKEN and MEDIA_DIR
-docker compose up -d
+docker compose up -d        # also after a git pull: the image is rebuilt from the checkout
 # open http://localhost:8000/auth?token=<STALLION_TOKEN>
 ```
 
@@ -83,6 +85,7 @@ stallion serve --host 0.0.0.0 --media-root /srv/videos
 | `STALLION_FFMPEG` / `STALLION_FFPROBE` | found in `PATH` | FFmpeg binaries |
 | `STALLION_ALLOWED_ORIGINS` | none | Extra origins allowed to open the WebSocket (reverse proxies) |
 | `STALLION_HWENC` | `on` | `off` skips GPU encoder detection, so everything is encoded on the CPU |
+| `STALLION_AUTOBUILD` | `on` | In a source checkout, rebuild the UI at startup when `frontend/` changed (needs npm); `off` serves the existing build |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxies trusted for `X-Forwarded-*` headers |
 
 The desktop app picks a random port and token on every launch and passes them to its own window.

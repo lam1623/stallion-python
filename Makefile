@@ -14,21 +14,26 @@ $(BIN)/python:
 	$(PY) -m venv $(VENV)
 	$(BIN)/pip install --upgrade pip
 
-install: $(BIN)/python ## Install backend (editable, dev + desktop extras) and frontend deps
+# Reinstalled whenever pyproject.toml changes (a new dependency after a git pull)
+$(VENV)/.installed: pyproject.toml | $(BIN)/python
 	$(BIN)/pip install -e ".[dev,desktop]"
+	@touch $@
+
+install: $(VENV)/.installed ## Install backend (editable, dev + desktop extras) and frontend deps
 	$(NPM) ci
 
 build: ## Build the web UI into stallion/web/dist
 	$(NPM) run build
 
-run: build ## Launch the desktop app
+# `stallion` itself rebuilds the UI when frontend/ changed since the last build
+run: $(VENV)/.installed ## Launch the desktop app
 	$(BIN)/stallion
 
-serve: build ## Run the web server on http://localhost:8000
+serve: $(VENV)/.installed ## Run the web server on http://localhost:8000
 	$(BIN)/stallion serve --open
 
 dev-api: ## Backend with a fixed dev token (pair with `make dev-ui`)
-	STALLION_TOKEN=dev $(BIN)/stallion serve --port 8000 --log-level debug
+	STALLION_TOKEN=dev STALLION_AUTOBUILD=off $(BIN)/stallion serve --port 8000 --log-level debug
 
 dev-ui: ## Vite dev server with hot reload on http://localhost:5173/auth?token=dev
 	$(NPM) run dev
