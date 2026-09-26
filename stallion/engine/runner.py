@@ -121,6 +121,8 @@ class FFmpegRun:
             **kwargs,
         )
         self._started_at = time.monotonic()
+        if self._cancel_requested:
+            await self._terminate()  # canceled while the process was starting
         try:
             await asyncio.gather(self._read_progress(), self._read_log())
             returncode = await self._proc.wait()

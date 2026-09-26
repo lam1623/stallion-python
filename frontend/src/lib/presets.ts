@@ -1,4 +1,4 @@
-import type { MediaInfo, Preset } from "./types";
+import type { HardwareInfo, MediaInfo, Preset } from "./types";
 
 // Mirrors stallion/engine/command.py (size_budget, auto_short_side) so the UI can preview the result
 const SIZE_MARGIN = 0.96;
@@ -45,4 +45,17 @@ export function sizePlan(media: MediaInfo, targetMb: number, audioKbps: number |
 /** "1080x1920" → "1080×1920" */
 export function frameLabel(frame: string | null): string {
   return frame ? frame.replace("x", "×") : "";
+}
+
+// Mirrors stallion/engine/hwaccel.py: CPU encoders a GPU encoder can replace
+const GPU_FAMILIES: Record<string, string> = { libx264: "h264", libx265: "hevc", libsvtav1: "av1", "libaom-av1": "av1" };
+
+/** Can this machine encode `preset` on its GPU? "tenBit": the GPU has the codec but not in 10 bits. */
+export function gpuSupport(preset: Preset, hardware: HardwareInfo | undefined): "ok" | "format" | "tenBit" | "none" {
+  if (!hardware?.available) return "none";
+  if (hardware.presets.includes(preset.id)) return "ok";
+  const family = preset.video ? GPU_FAMILIES[preset.video.codec] : undefined;
+  const tenBit = /10|12|16/.test(preset.video?.pix_fmt ?? "");
+  if (family && tenBit && hardware.codecs.includes(family) && !hardware.ten_bit.includes(family)) return "tenBit";
+  return "format";
 }

@@ -1,7 +1,11 @@
 # docker compose up -d  →  http://localhost:8000/auth?token=$STALLION_TOKEN
 services:
   stallion:
-    build: .
+    build:
+      context: .
+      args:
+        # "1" adds the VA-API drivers for GPU encoding on Intel/AMD hosts (and uncomment `devices` below)
+        VAAPI: "${STALLION_VAAPI:-0}"
     image: stallion:latest
     container_name: stallion
     ports:
@@ -18,6 +22,11 @@ services:
       - stallion-data:/data
     # Converted files are written as this user: match the owner of MEDIA_DIR (`id -u` / `id -g`)
     user: "${PUID:-1000}:${PGID:-1000}"
+    # GPU encoding (VA-API): share the render device and the group that owns it
+    # devices:
+    #   - /dev/dri:/dev/dri
+    # group_add:
+    #   - "${RENDER_GID:-107}"
     restart: unless-stopped
 
 volumes:

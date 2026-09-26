@@ -24,6 +24,8 @@ export function PresetCard({
   note?: string;
 }) {
   const lang = useLang();
+  const t = useT();
+  const gpu = useStore((s) => !!s.system?.hardware?.presets.includes(preset.id));
   return (
     <button
       disabled={disabled}
@@ -47,6 +49,11 @@ export function PresetCard({
           <p className="mt-1.5 text-[11px] font-medium text-warning">{note}</p>
         ) : (
           <div className="mt-2 flex flex-wrap gap-1">
+            {gpu && (
+              <Badge title={t("fmt.gpu")} className="border-transparent bg-viz-gpu/15 px-1 py-px text-[10px] font-bold text-fg">
+                GPU
+              </Badge>
+            )}
             {preset.tags.map((tag) => (
               <Badge key={tag} className="px-1 py-px text-[10px]">
                 {tag}

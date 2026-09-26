@@ -8,6 +8,7 @@ import re
 import sys
 from pathlib import Path
 
+from .hwaccel import GpuPlan
 from .options import JobOptions, SubtitleStyle
 from .presets import Preset, VideoSpec
 from .probe import ASS_SUBTITLE_CODECS, MediaInfo, SubtitleStream, VideoStream
@@ -321,14 +322,18 @@ def validate_options(media: MediaInfo, preset: Preset, options: JobOptions) -> N
         raise OptionsError("bitmap_soft", "Image subtitles (PGS/VobSub) can only be burned or kept in MKV")
 
 
-def _video_codec_args(preset: Preset, options: JobOptions, size_kbps: int | None) -> list[str]:
+def _video_codec_args(
+    preset: Preset, options: JobOptions, size_kbps: int | None, gpu: GpuPlan | None = None
+) -> list[str]:
     spec = preset.video
     if spec is None or preset.target:
         return []
     if spec.codec == "copy":
         return ["-c:v", "copy"]
-    args = ["-c:v", spec.codec]
     quality = resolve_quality(spec, options)
+    if gpu is not None:
+        return gpu.codec_args(spec, quality=quality, size_kbps=size_kbps, speed=options.speed)
+    args = ["-c:v", spec.codec]
     if quality is not None:
         if spec.rate_control == "crf":
             args += ["-crf", str(quality)]
@@ -466,13 +471,17 @@ def build_command(
     overwrite: bool = False,
     subtitle_charenc: str | None = None,
     can_tonemap: bool = False,
+    gpu: GpuPlan | None = None,
 ) -> list[str]:
     """Build the full ffmpeg argv. Raises :class:`OptionsError` for invalid combinations.
 
     ``can_tonemap`` tells whether this ffmpeg has ``zscale`` to turn HDR into SDR for 8-bit formats.
+    ``gpu`` moves the video encode to a GPU encoder (see :meth:`HardwareEncoders.plan_for`).
     """
 
     validate_options(media, preset, options)
+    if media.video is None or preset.video is None:
+        gpu = None
 
     source = media.path
     mode = options.subtitle_mode
@@ -480,7 +489,7 @@ def build_command(
     external_sub = options.subtitle_file if mode != "none" and embedded_sub is None else None
 
     argv = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error", "-nostats", "-progress", "pipe:1"]
-    argv += ["-y" if overwrite else "-n", "-i", source]
+    argv += ["-y" if overwrite else "-n", *(gpu.input_args() if gpu else []), "-i", source]
     if external_sub and mode == "soft":
         if subtitle_charenc and subtitle_charenc.upper() not in ("UTF-8", "UTF8"):
             argv += ["-sub_charenc", subtitle_charenc]
@@ -522,12 +531,14 @@ def build_command(
                 graph.add(f"scale={size[0]}:{size[1]},setsar=1")
         if preset.animation == "gif":
             graph.raw(GIF_PALETTE)
+        if gpu is not None:
+            graph.add(*gpu.upload_filters(spec.high_bit_depth))
 
         global_args, filter_args, video_map = graph.finish()
         argv += global_args
         maps.append(video_map)
         out += filter_args
-        out += _video_codec_args(preset, options, size_video)
+        out += _video_codec_args(preset, options, size_video, gpu)
         if preset.target:
             out += ["-aspect", _disc_aspect(video, preset)]
 

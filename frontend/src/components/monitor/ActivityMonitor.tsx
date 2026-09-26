@@ -199,14 +199,23 @@ export function MonitorPanel({ stats }: { stats: SystemStats }) {
         {processes.length === 0 && <p className="text-xs text-muted">{t("mon.idle")}</p>}
         {processes.map((process) => {
           const job = jobs[process.job_id];
+          const gpu = job?.engine === "gpu";
           return (
             <div key={process.job_id} className="space-y-1 rounded-xl border border-border bg-surface px-3 py-2.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-[13px] font-semibold text-fg">{job?.name ?? process.job_id}</span>
-                <span className="shrink-0 rounded-full bg-viz-cpu/15 px-2 py-0.5 text-[10.5px] font-bold text-fg">CPU</span>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold text-fg",
+                    gpu ? "bg-viz-gpu/15" : "bg-viz-cpu/15",
+                  )}
+                >
+                  {gpu ? "GPU" : "CPU"}
+                </span>
               </div>
-              <p className="text-xs text-muted tabular">
-                {percent(process.cpu)} · {t("mon.threads", { count: process.threads })}
+              <p className="truncate text-xs text-muted tabular">
+                {job?.encoder && `${job.encoder} · `}
+                CPU {percent(process.cpu)} · {t("mon.threads", { count: process.threads })}
                 {job?.progress.speed ? ` · ${job.progress.speed.toLocaleString(lang, { maximumFractionDigits: 1 })}×` : ""}
               </p>
             </div>

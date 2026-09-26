@@ -13,12 +13,14 @@ Modern video and audio converter powered by FFmpeg. The same web-based UI runs a
   - **Audio**: MP3, M4A (AAC), Opus, FLAC, ALAC (Apple Lossless) and WAV.
   - **No re-encoding**: lossless remuxing to MKV/MP4.
   - **Classic**: AVI (Xvid), WMV, FLV and DVD/SVCD/VCD (PAL and NTSC), kept for old players.
+- **GPU encoding**: NVIDIA NVENC, Intel Quick Sync, VA-API (Intel/AMD on Linux), AMD AMF (Windows) and Apple VideoToolbox. At startup each GPU encoder has to pass a short test encode before it is offered. H.264, HEVC (10-bit when the GPU supports it) and AV1 formats then use the GPU automatically. You can switch this off globally or per file, and a file the GPU cannot handle is converted on the CPU instead.
+- **Live activity monitor**: per-core CPU load, memory and GPU load (video encoder, decoder, VRAM), each with a minute of history, plus the CPU use of every running conversion.
 - **HDR aware**: 10-bit formats keep HDR10/HLG; 8-bit formats tone-map HDR to SDR (BT.709) so colors don't look washed out (needs FFmpeg with `zscale`, included in the Docker image).
 - **Target size**: pick a size in MB and Stallion derives the bitrate and a sensible resolution from the duration, accounting for container overhead. In tests, files landed at 93–96 % of the limit.
 - **Per-file control**: quality (CRF, bitrate or 0–100), encoding speed, resolution (never upscales, handles portrait and anamorphic video), audio bitrate, volume and EBU R128 loudness normalization.
 - **Audio tracks**: pick the language you want; remuxing keeps every track.
 - **Subtitles**: burn them in or embed them as a track, from embedded tracks (text or PGS/VobSub images) or external `.srt/.ass/.ssa/.vtt` files. A matching `.srt` next to the video is picked up automatically, Windows-1252 files are detected, and a style editor shows a live preview.
-- **Queue**: parallel conversions, pause/resume/cancel/retry, live progress with speed and ETA, thumbnails, batch editing, and the exact `ffmpeg` command for every job.
+- **Queue**: full-width cards or a dense table, status filters and search, parallel conversions, pause/resume/cancel/retry, live progress with speed and ETA, thumbnails, batch editing, and the exact `ffmpeg` command for every job. Options open only for the file you pick, either floating over the list or pinned beside it.
 - **Spanish and English UI**, light theme by default with an optional dark mode, keyboard shortcuts.
 - **Headless CLI** for scripts and servers.
 
@@ -47,7 +49,7 @@ docker compose up -d
 # open http://localhost:8000/auth?token=<STALLION_TOKEN>
 ```
 
-The container runs as an unprivileged user, ships FFmpeg and subtitle fonts, and only sees the folder mounted at `/media`.
+The container runs as an unprivileged user, ships FFmpeg and subtitle fonts, and only sees the folder mounted at `/media`. For GPU encoding on Intel or AMD hosts, set `STALLION_VAAPI=1` and `RENDER_GID` in `.env` and uncomment `devices` in `compose.yaml`: the image then includes the VA-API drivers and the container can use `/dev/dri`.
 
 ### Command line
 
@@ -58,6 +60,7 @@ stallion convert talk.mp4 -p mp3 --subtitles none
 stallion convert clip.mov -p share-size -q 25                   # fit in 25 MB
 stallion convert trip.mp4 -p social-vertical                    # 1080×1920 for Reels/TikTok
 stallion convert hdr.mov -p mp4-hevc-10bit                      # keep HDR
+stallion convert *.mov -p mp4-h265 --accel gpu                  # encode on the GPU (cpu/auto)
 stallion serve --host 0.0.0.0 --media-root /srv/videos
 ```
 
@@ -74,6 +77,7 @@ stallion serve --host 0.0.0.0 --media-root /srv/videos
 | `STALLION_DATA_DIR` | platform data folder | Settings and thumbnail cache |
 | `STALLION_FFMPEG` / `STALLION_FFPROBE` | found in `PATH` | FFmpeg binaries |
 | `STALLION_ALLOWED_ORIGINS` | none | Extra origins allowed to open the WebSocket (reverse proxies) |
+| `STALLION_HWENC` | `on` | `off` skips GPU encoder detection, so everything is encoded on the CPU |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxies trusted for `X-Forwarded-*` headers |
 
 The desktop app picks a random port and token on every launch and passes them to its own window.

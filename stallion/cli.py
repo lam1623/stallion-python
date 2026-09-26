@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .config import AppConfig, auth_enabled_from_env, default_data_dir, default_media_roots
+from .config import (
+    AppConfig,
+    auth_enabled_from_env,
+    default_data_dir,
+    default_media_roots,
+    gpu_detection_from_env,
+)
 from .engine.ffmpeg import FFmpegNotFoundError, discover
 from .engine.presets import CATEGORY_ORDER, PresetCatalog
 from .fs import FileSystem, filesystem_roots
@@ -70,6 +76,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     convert.add_argument("--max-height", type=int, help="limit the short side, e.g. 1080 or 720")
     convert.add_argument("--speed", choices=["fast", "balanced", "quality"], default="balanced")
+    convert.add_argument(
+        "--accel",
+        choices=["auto", "cpu", "gpu"],
+        default="auto",
+        help="video encoder: auto uses a working GPU encoder when the format has one",
+    )
     convert.add_argument("--subtitles", choices=["auto", "none", "soft", "burn"], default="auto")
     convert.add_argument("-j", "--jobs", type=int, default=1, help="parallel conversions")
     convert.add_argument("--overwrite", action="store_true", help="replace existing output files")
@@ -187,10 +199,11 @@ async def _convert(args: argparse.Namespace) -> int:
         fs=FileSystem(filesystem_roots()),
         cache_dir=(args.data_dir or default_data_dir()) / "cache",
         system_monitor=False,
+        detect_gpu=args.accel != "cpu" and gpu_detection_from_env(),
     )
     if args.out_dir:
         args.out_dir.mkdir(parents=True, exist_ok=True)
-    patch: dict[str, Any] = {"preset_id": args.preset, "speed": args.speed}
+    patch: dict[str, Any] = {"preset_id": args.preset, "speed": args.speed, "accel": args.accel}
     if args.quality is not None:
         patch["quality"] = args.quality
     if args.max_height is not None:
@@ -199,6 +212,8 @@ async def _convert(args: argparse.Namespace) -> int:
         patch["subtitle_mode"] = "none"
 
     await manager.start()
+    # Settle GPU detection first so every file is planned on the right encoder
+    await manager.hardware_ready()
     events = manager.subscribe()
     try:
         jobs, errors = await manager.add_files([str(p.resolve()) for p in args.inputs], patch)
@@ -243,6 +258,10 @@ async def _convert(args: argparse.Namespace) -> int:
                         if status == JobStatus.COMPLETED
                         else job_data.get("error") or ""
                     )
+                    if status == JobStatus.COMPLETED and job_data.get("encoder"):
+                        engine = "GPU" if job_data["engine"] == "gpu" else "CPU"
+                        fallback = ", GPU failed" if job_data.get("gpu_fallback") else ""
+                        detail += f"  [{engine}: {job_data['encoder']}{fallback}]"
                     print(f"{status:<9} {job_data['name']} → {detail}", flush=True)
             elif event["type"] == "queue_finished":
                 counts = event["counts"]

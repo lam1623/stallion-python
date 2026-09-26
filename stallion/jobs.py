@@ -12,7 +12,7 @@ import uuid
 from collections.abc import Coroutine, Iterable
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -26,6 +26,7 @@ from .engine.command import (
     validate_options,
 )
 from .engine.ffmpeg import POPEN_KWARGS, FFmpegInfo
+from .engine.hwaccel import NO_HARDWARE, GpuPlan, HardwareEncoders, detect_hardware, wants_gpu
 from .engine.options import JobOptions
 from .engine.presets import Preset, PresetCatalog
 from .engine.probe import MediaInfo, ProbeError, probe_media
@@ -69,6 +70,12 @@ class Job(BaseModel):
     started_at: float | None = None
     finished_at: float | None = None
     output_size: int | None = None
+    # Where the video is encoded: planned while queued, the real one once started
+    engine: Literal["cpu", "gpu"] = "cpu"
+    # Video encoder, e.g. "hevc_nvenc" or "libx265" (None for audio-only and copied video)
+    encoder: str | None = None
+    # The GPU encoder failed and the file was converted on the CPU instead
+    gpu_fallback: bool = False
     # Bumped on every published change so clients can drop stale copies (e.g. late HTTP responses)
     revision: int = 0
 
@@ -110,6 +117,7 @@ class JobManager:
         fs: FileSystem,
         cache_dir: Path,
         system_monitor: bool = True,
+        detect_gpu: bool = True,
     ) -> None:
         self.ffmpeg = ffmpeg
         self.catalog = catalog
@@ -124,6 +132,8 @@ class JobManager:
         self._background: set[asyncio.Task[Any]] = set()
         self._reserved: set[Path] = set()
         self._paused_by_queue: set[str] = set()
+        # Jobs asked to stop, including between a failed GPU attempt and its CPU retry
+        self._cancel_requested: set[str] = set()
         self._subscribers: set[asyncio.Queue[Event]] = set()
         self._dirty: set[str] = set()
         self._flusher: asyncio.Task[None] | None = None
@@ -137,6 +147,9 @@ class JobManager:
             else None
         )
         self._monitor_task: asyncio.Task[None] | None = None
+        # GPU encoders, known once the test encodes finish (None while they run)
+        self.hardware: HardwareEncoders | None = None if detect_gpu and ffmpeg else NO_HARDWARE
+        self._hardware_task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -144,6 +157,33 @@ class JobManager:
         self._flusher = asyncio.create_task(self._flush_progress())
         if self._monitor is not None:
             self._monitor_task = asyncio.create_task(self._monitor.run())
+        if self.hardware is None:
+            self._hardware_task = asyncio.create_task(self._detect_hardware())
+
+    async def _detect_hardware(self) -> None:
+        assert self.ffmpeg is not None
+        try:
+            hardware = await asyncio.to_thread(detect_hardware, self.ffmpeg)
+        except Exception:  # never let a driver quirk take the app down
+            log.exception("GPU encoder detection failed")
+            hardware = NO_HARDWARE
+        self.hardware = hardware
+        for job in self.jobs.values():
+            if job.status == JobStatus.QUEUED and self._plan_engine(job):
+                self._emit_job(job)
+        self._publish({"type": "hardware", "hardware": self.hardware_summary()})
+
+    async def hardware_ready(self) -> HardwareEncoders:
+        """Wait for GPU detection (the CLI wants it settled before converting)."""
+
+        if self._hardware_task is not None:
+            await asyncio.shield(self._hardware_task)
+        return self.hardware or NO_HARDWARE
+
+    def hardware_summary(self) -> dict[str, Any]:
+        if self.hardware is None:
+            return {"state": "detecting", **NO_HARDWARE.summary()}
+        return {"state": "ready", **self.hardware.summary(list(self.catalog))}
 
     async def shutdown(self) -> None:
         """Stop everything and make sure no ffmpeg process outlives the app."""
@@ -158,7 +198,7 @@ class JobManager:
             await asyncio.wait(job_tasks, timeout=10)
         pending = [
             t
-            for t in [*job_tasks, *self._background, self._flusher, self._monitor_task]
+            for t in [*job_tasks, *self._background, self._flusher, self._monitor_task, self._hardware_task]
             if t is not None and not t.done()
         ]
         for task in pending:
@@ -223,6 +263,15 @@ class JobManager:
     def emit_settings(self) -> None:
         self._publish({"type": "settings", "settings": self.settings.current.model_dump()})
 
+    def settings_changed(self) -> None:
+        """Re-plan queued jobs (e.g. GPU encoding switched on or off) and tell the clients."""
+
+        for job in self.jobs.values():
+            if job.status == JobStatus.QUEUED and self._plan_engine(job):
+                self._emit_job(job)
+        self.emit_settings()
+        self._schedule()
+
     async def _flush_progress(self) -> None:
         while True:
             await asyncio.sleep(0.25)
@@ -264,6 +313,30 @@ class JobManager:
         if missing:
             raise ManagerError("encoder_missing", f"Your FFmpeg lacks: {', '.join(missing)}", 422)
         return preset
+
+    def _gpu_plan(self, job: Job) -> GpuPlan | None:
+        if self.hardware is None or job.media.video is None:
+            return None
+        if not wants_gpu(job.options, self.settings.current.gpu_encoding):
+            return None
+        return self.hardware.plan_for(self.catalog.get(job.options.preset_id))
+
+    def _set_engine(self, job: Job, plan: GpuPlan | None) -> bool:
+        """Record where the video will be encoded; True when that changed."""
+
+        spec = self.catalog.get(job.options.preset_id).video
+        engine: Literal["cpu", "gpu"] = "cpu"
+        encoder: str | None = None
+        if plan is not None:
+            engine, encoder = "gpu", plan.encoder.name
+        elif spec is not None and spec.codec != "copy" and job.media.video is not None:
+            encoder = spec.codec
+        changed = (job.engine, job.encoder) != (engine, encoder)
+        job.engine, job.encoder = engine, encoder
+        return changed
+
+    def _plan_engine(self, job: Job) -> bool:
+        return self._set_engine(job, self._gpu_plan(job))
 
     def _planned_output(self, job: Job) -> Path:
         preset = self.catalog.get(job.options.preset_id)
@@ -384,6 +457,7 @@ class JobManager:
             created_at=time.time(),
         )
         job.output_path = str(self._planned_output(job))
+        self._plan_engine(job)
         return job
 
     def update_options(self, job_id: str, patch: dict[str, Any]) -> Job:
@@ -399,6 +473,8 @@ class JobManager:
         except (OptionsError, PathError) as exc:
             raise ManagerError(exc.code, exc.message, 422) from exc
         job.output_path = str(self._planned_output(job))
+        job.gpu_fallback = False
+        self._plan_engine(job)
         self._emit_job(job)
         return job
 
@@ -418,7 +494,10 @@ class JobManager:
         job = self.get(job_id)
         ffmpeg = self._require_ffmpeg()
         charenc = self._subtitle_charenc(job.options)
-        output = job.output_path if job.status in ACTIVE | FINISHED else str(self._planned_output(job))
+        started = job.status in ACTIVE | FINISHED
+        output = job.output_path if started else str(self._planned_output(job))
+        # Once started, show what really ran (the CPU command after a GPU fallback)
+        plan = self._gpu_plan(job) if not started or job.engine == "gpu" else None
         return build_command(
             ffmpeg=Path(ffmpeg.ffmpeg).name,
             media=job.media,
@@ -428,6 +507,7 @@ class JobManager:
             overwrite=self.settings.current.overwrite,
             subtitle_charenc=charenc,
             can_tonemap=ffmpeg.has_filter("zscale"),
+            gpu=plan,
         )
 
     @staticmethod
@@ -484,6 +564,8 @@ class JobManager:
 
     def _launch(self, job: Job) -> None:
         self._launched_since_start = True
+        self._cancel_requested.discard(job.id)
+        job.gpu_fallback = False
         job.status = JobStatus.RUNNING
         job.progress = Progress()
         job.error = None
@@ -497,10 +579,46 @@ class JobManager:
     def _forget_task(self, job_id: str, _task: asyncio.Task[None]) -> None:
         self._job_tasks.pop(job_id, None)
 
-    async def _run(self, job: Job) -> None:
+    def _command(self, job: Job, output: Path, plan: GpuPlan | None) -> list[str]:
         ffmpeg = self._require_ffmpeg()
+        return build_command(
+            ffmpeg=ffmpeg.ffmpeg,
+            media=job.media,
+            preset=self._preset(job.options.preset_id),
+            options=job.options,
+            output=output,
+            overwrite=self.settings.current.overwrite,
+            subtitle_charenc=self._subtitle_charenc(job.options),
+            can_tonemap=ffmpeg.has_filter("zscale"),
+            gpu=plan,
+        )
+
+    async def _execute(self, job: Job, argv: list[str], output: Path) -> tuple[RunResult | None, str]:
+        """Run one ffmpeg attempt; returns (result, error when it could not even start)."""
+
+        run = FFmpegRun(argv, job.media.duration_s, on_progress=lambda p: self._on_progress(job.id, p))
+        if job.id in self._cancel_requested:
+            await run.cancel()  # canceled before this attempt started
+        self._runs[job.id] = run
+        try:
+            return await run.run(), ""
+        except OSError as exc:
+            return None, f"Could not start ffmpeg: {exc}"
+        except asyncio.CancelledError:
+            _remove_file(output)
+            raise
+        finally:
+            self._runs.pop(job.id, None)
+
+    def _gpu_failed(self, job: Job, result: RunResult | None, output: Path) -> bool:
+        if result is None or result.canceled or self._closing or job.id in self._cancel_requested:
+            return False
+        return result.returncode != 0 or not _file_size(output)
+
+    async def _run(self, job: Job) -> None:
         settings = self.settings.current
         output: Path | None = None
+        plan = self._gpu_plan(job)
         try:
             planned = self._planned_output(job)
             self.fs.resolve(str(planned.parent), kind="any", must_exist=False)
@@ -509,16 +627,7 @@ class JobManager:
             )
             self._reserved.add(output)
             output.parent.mkdir(parents=True, exist_ok=True)
-            argv = build_command(
-                ffmpeg=ffmpeg.ffmpeg,
-                media=job.media,
-                preset=self._preset(job.options.preset_id),
-                options=job.options,
-                output=output,
-                overwrite=settings.overwrite,
-                subtitle_charenc=self._subtitle_charenc(job.options),
-                can_tonemap=ffmpeg.has_filter("zscale"),
-            )
+            argv = self._command(job, output, plan)
         except (OptionsError, PathError, ManagerError) as exc:
             self._release(output)
             self._finish(job, JobStatus.FAILED, error=exc.message)
@@ -529,26 +638,35 @@ class JobManager:
             return
 
         job.output_path = str(output)
+        self._set_engine(job, plan)
         self._emit_job(job)
         self._emit_queue()
-        run = FFmpegRun(argv, job.media.duration_s, on_progress=lambda p: self._on_progress(job.id, p))
-        self._runs[job.id] = run
-        result: RunResult | None = None
-        start_error = ""
         try:
-            result = await run.run()
-        except OSError as exc:
-            start_error = f"Could not start ffmpeg: {exc}"
-        except asyncio.CancelledError:
-            _remove_file(output)
-            raise
+            result, start_error = await self._execute(job, argv, output)
+            lines = result.log if result else [start_error]
+            if plan is not None and self._gpu_failed(job, result, output):
+                # Drivers, session limits or odd frame sizes can defeat the GPU; the CPU always works
+                reason = summarize_error(result, "")
+                log.warning("GPU encode of %s failed, retrying on the CPU: %s", job.name, reason)
+                _remove_file(output)
+                job.gpu_fallback = True
+                job.progress = Progress()
+                self._set_engine(job, None)
+                self._emit_job(job)
+                gpu_lines = lines
+                result, start_error = await self._execute(job, self._command(job, output, None), output)
+                lines = [
+                    f"{plan.encoder.name} failed, converted on the CPU instead:",
+                    *gpu_lines[-6:],
+                    "",
+                    *(result.log if result else [start_error]),
+                ]
         finally:
-            self._runs.pop(job.id, None)
             self._paused_by_queue.discard(job.id)
             self._release(output)
 
-        self.logs[job.id] = result.log if result else [start_error]
-        if result is not None and result.canceled:
+        self.logs[job.id] = lines
+        if (result is not None and result.canceled) or job.id in self._cancel_requested:
             _remove_file(output)
             self._finish(job, JobStatus.CANCELED)
         elif result is not None and result.returncode == 0 and _file_size(output):
@@ -616,6 +734,7 @@ class JobManager:
         if job.status == JobStatus.QUEUED:
             self._finish(job, JobStatus.CANCELED)
         elif job.status in ACTIVE:
+            self._cancel_requested.add(job_id)
             run = self._runs.get(job_id)
             if run is not None:
                 await run.cancel()
@@ -636,6 +755,8 @@ class JobManager:
         job.started_at = job.finished_at = None
         job.output_size = None
         job.output_path = str(self._planned_output(job))
+        job.gpu_fallback = False
+        self._plan_engine(job)
         self.logs.pop(job_id, None)
         self._emit_job(job)
         self._emit_queue()

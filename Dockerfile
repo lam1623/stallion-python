@@ -20,8 +20,14 @@ RUN python -m build --wheel --outdir /wheels
 
 # ---- 3. Runtime (Alpine keeps the image around 350 MB with a full-featured ffmpeg) ----
 FROM python:3.12-alpine
+# VAAPI=1 adds the VA-API drivers for GPU encoding on Intel/AMD hosts (see compose.yaml)
+ARG VAAPI=0
 # ffmpeg + fonts so burned-in subtitles render (Liberation is metric-compatible with Arial)
 RUN apk add --no-cache ffmpeg fontconfig font-dejavu font-liberation tini \
+ && if [ "$VAAPI" = "1" ]; then \
+      apk add --no-cache mesa-va-gallium \
+      && if [ "$(apk --print-arch)" = "x86_64" ]; then apk add --no-cache intel-media-driver; fi; \
+    fi \
  && adduser -D -u 1000 stallion \
  && mkdir -p /media /data \
  && chown stallion:stallion /media \

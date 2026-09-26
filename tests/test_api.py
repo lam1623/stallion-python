@@ -34,6 +34,7 @@ def client(tmp_path: Path, media_dir: Path, static_dir: Path) -> Iterator[TestCl
         media_roots=[media_dir, tmp_path / "out"],
         data_dir=tmp_path / "data",
         static_dir=static_dir,
+        detect_gpu=False,
     )
     (tmp_path / "out").mkdir()
     with TestClient(create_app(config), base_url="http://127.0.0.1:8000") as test_client:
@@ -46,13 +47,25 @@ def test_health_is_public_and_api_is_not(client: TestClient) -> None:
     assert client.get("/api/system", headers={"Authorization": "Bearer nope"}).status_code == 401
     system = client.get("/api/system", headers=AUTH).json()
     assert system["ffmpeg"]["available"] is True and system["desktop"] is False
+    # GPU detection switched off: settled at once, nothing found
+    assert system["hardware"] == {
+        "state": "ready",
+        "available": False,
+        "backend": None,
+        "label": None,
+        "codecs": [],
+        "ten_bit": [],
+        "presets": [],
+    }
 
 
 def test_html_shell_carries_the_saved_theme(tmp_path: Path) -> None:
     ui = tmp_path / "ui"
     ui.mkdir()
     (ui / "index.html").write_text('<!doctype html><html lang="en"><head></head><body></body></html>')
-    config = AppConfig(auth_token=TOKEN, media_roots=[tmp_path], data_dir=tmp_path / "data", static_dir=ui)
+    config = AppConfig(
+        auth_token=TOKEN, media_roots=[tmp_path], data_dir=tmp_path / "data", static_dir=ui, detect_gpu=False
+    )
     with TestClient(create_app(config)) as client:
         assert '<html data-theme="light" lang="en">' in client.get("/").text
         assert client.put("/api/settings", json={"theme": "dark"}, headers=AUTH).status_code == 200
@@ -114,7 +127,9 @@ def test_settings_validation_and_persistence(client: TestClient, tmp_path: Path)
     ok = client.put(
         "/api/settings", json={"concurrency": 3, "output_dir": str(tmp_path / "out")}, headers=AUTH
     )
-    assert ok.status_code == 200 and ok.json()["concurrency"] == 3
+    assert ok.status_code == 200 and ok.json()["concurrency"] == 3 and ok.json()["gpu_encoding"] is True
+    off = client.put("/api/settings", json={"gpu_encoding": False}, headers=AUTH)
+    assert off.status_code == 200 and off.json()["gpu_encoding"] is False
     saved = json.loads((tmp_path / "data" / "settings.json").read_text())
     assert saved["output_dir"] == str((tmp_path / "out").resolve())
 

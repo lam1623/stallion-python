@@ -3,9 +3,9 @@ import { type ReactNode, useEffect, useState } from "react";
 import { pickPaths, updateOptions } from "@/lib/actions";
 import { basename, displaySize } from "@/lib/format";
 import { localized, type Translator, useLang, useT } from "@/lib/i18n";
-import { frameLabel, keepsHdr, type SizePlan, sizePlan } from "@/lib/presets";
+import { frameLabel, gpuSupport, keepsHdr, type SizePlan, sizePlan } from "@/lib/presets";
 import { useStore } from "@/lib/store";
-import type { Job, JobOptions, Preset, Speed } from "@/lib/types";
+import type { Accel, Job, JobOptions, Preset, Speed } from "@/lib/types";
 import { PresetIcon } from "../Brand";
 import { PresetPicker } from "../PresetPicker";
 import { Button } from "../ui/button";
@@ -214,6 +214,47 @@ function VolumeField({ value, onCommit, disabled }: { value: number; onCommit: (
   );
 }
 
+/** CPU or GPU encoder for this file; only shown when the machine has a working GPU encoder. */
+function EngineField({
+  jobs,
+  preset,
+  disabled,
+  onChange,
+}: {
+  jobs: Job[];
+  preset: Preset;
+  disabled: boolean;
+  onChange: (accel: Accel) => void;
+}) {
+  const t = useT();
+  const hardware = useStore((s) => s.system?.hardware);
+  const preferGpu = useStore((s) => s.settings?.gpu_encoding ?? true);
+  const support = gpuSupport(preset, hardware);
+  if (support === "none" || !hardware) return null;
+  const [job] = jobs;
+  const accel = job.options.accel;
+  const onGpu = support === "ok" && (accel === "gpu" || (accel === "auto" && preferGpu));
+  let hint = onGpu ? t("opt.engineHint.gpu", { label: hardware.label ?? "GPU" }) : t("opt.engineHint.cpu");
+  if (support === "format") hint = t("opt.engineHint.format");
+  else if (support === "tenBit") hint = t("opt.engineHint.tenBit");
+  else if (jobs.length === 1 && job.gpu_fallback) hint = t("job.gpuFallback");
+  return (
+    <Field label={t("opt.engine")} hint={hint}>
+      <Segmented<Accel>
+        className="w-full"
+        value={accel}
+        disabled={disabled || support !== "ok"}
+        onValueChange={onChange}
+        options={[
+          { value: "auto", label: t("opt.engine.auto", { engine: support === "ok" && preferGpu ? "GPU" : "CPU" }) },
+          { value: "cpu", label: "CPU" },
+          { value: "gpu", label: "GPU" },
+        ]}
+      />
+    </Field>
+  );
+}
+
 function FileNameField({ job, preset, disabled }: { job: Job; preset: Preset; disabled: boolean }) {
   const t = useT();
   const stem = basename(job.input_path).replace(/\.[^.]+$/, "");
@@ -384,6 +425,9 @@ export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) 
                 ]}
               />
             </Field>
+          )}
+          {encodesVideo && (
+            <EngineField jobs={jobs} preset={preset} disabled={locked} onChange={(accel) => update({ accel })} />
           )}
           {resolution}
         </div>
