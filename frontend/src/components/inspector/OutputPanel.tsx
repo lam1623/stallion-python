@@ -42,7 +42,8 @@ export function presetPatch(job: Job, preset: Preset): Partial<JobOptions> {
   } else if (options.subtitle_mode === "burn" && !canBurn) {
     patch.subtitle_mode = "none";
   }
-  if (preset.remux) {
+  // Copied audio cannot be filtered: volume and normalization go back to neutral
+  if (preset.remux || preset.audio?.codec === "copy") {
     patch.volume_db = 0;
     patch.normalize_audio = false;
   }
@@ -437,7 +438,7 @@ export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) 
       )}
 
       <div className="space-y-6">
-        {preset.audio && hasAudio && !preset.remux && (
+        {preset.audio && hasAudio && !preset.remux && preset.audio.codec !== "copy" && (
           <div className="space-y-5">
             <SectionTitle>{t("opt.audio")}</SectionTitle>
             {preset.audio.bitrate_choices.length > 0 && (

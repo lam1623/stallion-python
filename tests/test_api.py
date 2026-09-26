@@ -59,6 +59,15 @@ def test_health_is_public_and_api_is_not(client: TestClient) -> None:
     }
 
 
+def test_a_stale_cookie_does_not_hide_a_valid_bearer_token(client: TestClient) -> None:
+    # E.g. the token was rotated while a browser still holds the old session cookie
+    client.cookies.set("stallion_session", "token-from-before-a-rotation")
+    assert client.get("/api/settings").status_code == 401
+    assert client.get("/api/settings", headers=AUTH).status_code == 200
+    client.cookies.set("stallion_session", TOKEN)
+    assert client.get("/api/settings", headers={"Authorization": "Bearer stale"}).status_code == 200
+
+
 def test_html_shell_carries_the_saved_theme(tmp_path: Path) -> None:
     ui = tmp_path / "ui"
     ui.mkdir()

@@ -220,6 +220,9 @@ class JobManager:
         for task in pending:
             task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
+        # Jobs do not survive a restart, so neither should their thumbnails
+        for job_id in self.jobs:
+            _remove_file(self.thumb_dir / f"{job_id}.jpg")
 
     def _spawn(self, coro: Coroutine[Any, Any, Any]) -> None:
         task = asyncio.create_task(coro)
@@ -970,8 +973,12 @@ class JobManager:
                     raise
             except (OSError, TimeoutError) as exc:
                 log.debug("Thumbnail failed for %s: %s", job.input_path, exc)
+                _remove_file(target)
                 return
-        if proc.returncode == 0 and target.is_file() and job.id in self.jobs:
+        if job.id not in self.jobs:
+            _remove_file(target)  # the job was removed while its thumbnail was being made
+            return
+        if proc.returncode == 0 and target.is_file():
             job.thumbnail = True
             self._emit_job(job)
 
