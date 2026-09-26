@@ -20,13 +20,13 @@ dependencies = [
   "uvicorn[standard]>=0.30,<1",
   "pydantic>=2.7,<3",
   "platformdirs>=4,<5",
-  "psutil>=5.9; sys_platform == 'win32'",
+  "psutil>=5.9",
 ]
 
 [project.optional-dependencies]
 # Native window; on Linux the Qt backend installs cleanly from wheels
 desktop = ["pywebview>=5.3", "pywebview[qt]>=5.3; sys_platform == 'linux'"]
-dev = ["pytest>=8,<9", "httpx>=0.27", "ruff>=0.6", "mypy>=1.11"]
+dev = ["pytest>=8,<9", "httpx>=0.27", "ruff>=0.6", "mypy>=1.11", "types-psutil"]
 
 [project.scripts]
 stallion = "stallion.cli:main"

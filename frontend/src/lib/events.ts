@@ -54,6 +54,11 @@ function handle(event: ServerEvent) {
     case "settings":
       store.setData({ settings: event.settings });
       break;
+    case "system": {
+      const { type: _type, ...stats } = event;
+      store.applyStats(stats);
+      break;
+    }
     case "resync":
       api
         .jobs()

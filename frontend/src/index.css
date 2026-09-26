@@ -32,6 +32,10 @@
   /* Gradient fills behind white text (buttons, logo, progress) */
   --brand-from: var(--accent);
   --brand-to: var(--accent-2);
+  /* Activity charts: CPU/GPU pass the colour-blind and contrast checks on both themes */
+  --viz-cpu: #6a5af9;
+  --viz-gpu: #0d9488;
+  --viz-mem: #5b6b82;
 }
 
 /* Graphite dark theme: the light theme's layering with the lights dimmed, not pitch black */
@@ -61,6 +65,9 @@
   /* Deeper than the accent so white text stays readable (≥ 4.4:1) */
   --brand-from: #6f63e8;
   --brand-to: #9f58d0;
+  --viz-cpu: #8378f5;
+  --viz-gpu: #11a595;
+  --viz-mem: #8e9ab0;
 }
 
 @theme inline {
@@ -71,6 +78,9 @@
   --color-surface: var(--surface);
   --color-elevated: var(--elevated);
   --color-raised: var(--raised);
+  --color-viz-cpu: var(--viz-cpu);
+  --color-viz-gpu: var(--viz-gpu);
+  --color-viz-mem: var(--viz-mem);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-fg: var(--fg);

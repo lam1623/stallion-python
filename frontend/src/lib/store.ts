@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Job, JobOptions, Preset, Progress, QueueState, Settings, SystemInfo } from "./types";
+import type { Job, JobOptions, Preset, Progress, QueueState, Settings, SystemInfo, SystemStats } from "./types";
 
 export type View = "queue" | "formats" | "settings";
 export type Connection = "connecting" | "online" | "offline";
@@ -12,6 +12,14 @@ export interface BrowserRequest {
 }
 
 const EMPTY_COUNTS = { queued: 0, running: 0, paused: 0, completed: 0, failed: 0, canceled: 0 };
+// Samples kept for the activity charts (a minute while converting, 1 s apart)
+export const HISTORY_SIZE = 60;
+
+export interface Sample {
+  at: number;
+  cpu: number;
+  gpu: number | null;
+}
 
 interface State {
   booted: boolean;
@@ -30,6 +38,8 @@ interface State {
   connection: Connection;
   browser: BrowserRequest | null;
   inspectorTab: string;
+  stats: SystemStats | null;
+  history: Sample[];
 
   setBoot: (patch: Partial<Pick<State, "booted" | "authRequired" | "authenticated">>) => void;
   setData: (patch: Partial<Pick<State, "system" | "presets" | "settings" | "fonts">>) => void;
@@ -44,6 +54,7 @@ interface State {
   removeJobs: (ids: string[]) => void;
   setQueue: (queue: QueueState) => void;
   patchOptions: (ids: string[], patch: Partial<JobOptions>) => void;
+  applyStats: (stats: SystemStats) => void;
 
   select: (id: string, mode?: "single" | "toggle" | "range") => void;
   setSelection: (ids: string[]) => void;
@@ -66,6 +77,8 @@ export const useStore = create<State>()((set) => ({
   connection: "connecting",
   browser: null,
   inspectorTab: "output",
+  stats: null,
+  history: [],
 
   setBoot: (patch) => set(patch),
   setData: (patch) => set(patch),
@@ -119,6 +132,14 @@ export const useStore = create<State>()((set) => ({
     }),
 
   setQueue: (queue) => set({ queue }),
+
+  applyStats: (stats) =>
+    set((state) => ({
+      stats,
+      history: [...state.history, { at: Date.now(), cpu: stats.cpu.total, gpu: stats.gpu?.util ?? null }].slice(
+        -HISTORY_SIZE,
+      ),
+    })),
 
   patchOptions: (ids, patch) =>
     set((state) => {

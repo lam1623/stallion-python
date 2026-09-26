@@ -220,6 +220,30 @@ export interface FsListing {
   truncated: boolean;
 }
 
+export interface GpuStats {
+  vendor: "nvidia" | "amd" | "intel";
+  name: string;
+  util: number | null;
+  encoder: number | null;
+  decoder: number | null;
+  memory_used?: number | null;
+  memory_total?: number | null;
+}
+
+export interface ProcessStats {
+  job_id: string;
+  cpu: number;
+  threads: number;
+}
+
+/** Live machine usage pushed every 1–3 s over the events WebSocket. */
+export interface SystemStats {
+  cpu: { model: string; total: number; cores: number[] };
+  memory: { used: number; total: number };
+  gpu: GpuStats | null;
+  processes: ProcessStats[];
+}
+
 export interface AddError {
   path: string;
   code: string;
@@ -234,4 +258,5 @@ export type ServerEvent =
   | { type: "queue"; queue: QueueState }
   | { type: "queue_finished"; counts: Record<JobStatus, number> }
   | { type: "settings"; settings: Settings }
+  | ({ type: "system" } & SystemStats)
   | { type: "resync" };
