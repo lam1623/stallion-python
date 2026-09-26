@@ -62,6 +62,12 @@ class AppConfig:
     def settings_path(self) -> Path:
         return self.data_dir / "settings.json"
 
+    @property
+    def formats_path(self) -> Path:
+        """The user's own formats."""
+
+        return self.data_dir / "presets.json"
+
 
 def auth_enabled_from_env() -> bool:
     return _env_bool("STALLION_AUTH", True)

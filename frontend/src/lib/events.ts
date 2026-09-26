@@ -62,6 +62,10 @@ function handle(event: ServerEvent) {
     case "hardware":
       if (store.system) store.setData({ system: { ...store.system, hardware: event.hardware } });
       break;
+    case "presets":
+      store.setData({ presets: event.presets });
+      if (store.system) store.setData({ system: { ...store.system, hardware: event.hardware } });
+      break;
     case "resync":
       api
         .jobs()

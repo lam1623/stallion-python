@@ -17,18 +17,30 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from .engine.command import (
+    SAMPLE_MEDIA,
     OptionsError,
     build_command,
     detect_text_encoding,
+    display_command,
     find_external_subtitles,
     plan_output_path,
     unique_path,
     validate_options,
 )
+from .engine.custom import (
+    CustomPresetStore,
+    DraftError,
+    FormatDraft,
+    Issue,
+    compile_draft,
+    draft_issues,
+    draft_warnings,
+    new_preset_id,
+)
 from .engine.ffmpeg import POPEN_KWARGS, FFmpegInfo
 from .engine.hwaccel import NO_HARDWARE, GpuPlan, HardwareEncoders, detect_hardware, wants_gpu
 from .engine.options import JobOptions
-from .engine.presets import Preset, PresetCatalog
+from .engine.presets import Preset, PresetCatalog, PresetView
 from .engine.probe import MediaInfo, ProbeError, probe_media
 from .engine.runner import FFmpegRun, PauseNotSupportedError, Progress, RunResult
 from .fs import FileSystem, PathError
@@ -118,9 +130,13 @@ class JobManager:
         cache_dir: Path,
         system_monitor: bool = True,
         detect_gpu: bool = True,
+        custom: CustomPresetStore | None = None,
     ) -> None:
         self.ffmpeg = ffmpeg
         self.catalog = catalog
+        # The user's own formats (in memory only when no store is given)
+        self.custom = custom or CustomPresetStore(None)
+        self.catalog.set_custom(self.custom.presets())
         self.settings = settings
         self.fs = fs
         self.thumb_dir = cache_dir / "thumbs"
@@ -315,15 +331,18 @@ class JobManager:
         return preset
 
     def _gpu_plan(self, job: Job) -> GpuPlan | None:
-        if self.hardware is None or job.media.video is None:
+        if self.hardware is None or job.media.video is None or job.options.preset_id not in self.catalog:
             return None
-        if not wants_gpu(job.options, self.settings.current.gpu_encoding):
+        preset = self.catalog.get(job.options.preset_id)
+        if not wants_gpu(job.options, self.settings.current.gpu_encoding, preset.accel):
             return None
-        return self.hardware.plan_for(self.catalog.get(job.options.preset_id))
+        return self.hardware.plan_for(preset)
 
     def _set_engine(self, job: Job, plan: GpuPlan | None) -> bool:
         """Record where the video will be encoded; True when that changed."""
 
+        if job.options.preset_id not in self.catalog:
+            return False  # its custom format was deleted: keep what it last used
         spec = self.catalog.get(job.options.preset_id).video
         engine: Literal["cpu", "gpu"] = "cpu"
         encoder: str | None = None
@@ -513,6 +532,121 @@ class JobManager:
     @staticmethod
     def format_command(argv: list[str]) -> str:
         return shlex.join(argv)
+
+    # ------------------------------------------------------------------ formats
+
+    def preset_views(self) -> list[PresetView]:
+        drafts = {key: draft.model_dump() for key, draft in self.custom.drafts().items()}
+        return self.catalog.views(drafts)
+
+    def preset_view(self, preset_id: str) -> PresetView:
+        return next(view for view in self.preset_views() if view.id == preset_id)
+
+    def _example(self, preset: Preset) -> dict[str, Any]:
+        """The command ``preset`` runs on a typical 1080p file, with its encoder."""
+
+        ffmpeg = self.ffmpeg.ffmpeg if self.ffmpeg else "ffmpeg"
+        plan = None
+        if self.hardware is not None and wants_gpu(
+            JobOptions(preset_id=preset.id), self.settings.current.gpu_encoding, preset.accel
+        ):
+            plan = self.hardware.plan_for(preset)
+        argv = build_command(
+            ffmpeg=ffmpeg,
+            media=SAMPLE_MEDIA,
+            preset=preset,
+            options=JobOptions(preset_id=preset.id),
+            output=f"output{preset.extension}",
+            can_tonemap=bool(self.ffmpeg and self.ffmpeg.has_filter("zscale")),
+            gpu=plan,
+        )
+        encoder = plan.encoder.name if plan else preset.video.codec if preset.video else None
+        return {
+            "command": self.format_command(display_command(argv)),
+            "engine": "gpu" if plan else "cpu",
+            "encoder": None if encoder == "copy" else encoder,
+        }
+
+    def preset_example(self, preset_id: str) -> dict[str, Any]:
+        if preset_id not in self.catalog:
+            raise ManagerError("unknown_preset", f"Unknown format '{preset_id}'", 404)
+        return self._example(self.catalog.get(preset_id))
+
+    def preview_format(self, raw: dict[str, Any]) -> dict[str, Any]:
+        """Check an editor draft: errors, warnings and the command it would run."""
+
+        try:
+            draft = FormatDraft.model_validate(raw)
+        except ValidationError as exc:
+            errors = [
+                Issue("invalid", str(err["msg"]), {"field": ".".join(str(loc) for loc in err["loc"])})
+                for err in exc.errors()
+            ]
+            return {"ok": False, "errors": [e.to_json() for e in errors], "warnings": []}
+        issues = draft_issues(draft)
+        if issues:
+            return {"ok": False, "errors": [e.to_json() for e in issues], "warnings": []}
+        preset = compile_draft(draft, "custom-preview")
+        warnings = draft_warnings(draft) + self._gpu_warnings(draft, preset)
+        return {
+            "ok": True,
+            "errors": [],
+            "warnings": [w.to_json() for w in warnings],
+            "tags": preset.tags,
+            "extension": preset.extension,
+            **self._example(preset),
+        }
+
+    def _gpu_warnings(self, draft: FormatDraft, preset: Preset) -> list[Issue]:
+        if draft.accel == "cpu" or draft.video_codec not in ("h264", "hevc", "av1") or self.hardware is None:
+            return []
+        if not self.hardware.available:
+            if draft.accel != "gpu":
+                return []
+            return [Issue("gpu_none", "No working GPU encoder here, so the CPU encodes it")]
+        if self.hardware.plan_for(preset) is None:
+            codec = draft.video_codec.upper() + (" 10-bit" if draft.ten_bit else "")
+            return [Issue("gpu_codec", f"This GPU cannot encode {codec}, so the CPU does", {"codec": codec})]
+        return []
+
+    def save_format(self, preset_id: str | None, draft: FormatDraft) -> PresetView:
+        """Create (``preset_id=None``) or replace one of the user's formats."""
+
+        if preset_id is not None and not self.catalog.is_custom(preset_id):
+            raise ManagerError("not_custom", "Only your own formats can be edited", 404)
+        preset_id = preset_id or new_preset_id()
+        try:
+            self.custom.save(preset_id, draft)
+        except DraftError as exc:
+            raise ManagerError("invalid_format", str(exc), 422) from exc
+        self._formats_changed(preset_id)
+        return self.preset_view(preset_id)
+
+    def delete_format(self, preset_id: str) -> None:
+        if not self.catalog.is_custom(preset_id):
+            raise ManagerError("not_custom", "Only your own formats can be deleted", 404)
+        if any(j.options.preset_id == preset_id and j.status not in FINISHED for j in self.jobs.values()):
+            raise ManagerError("preset_in_use", "Files in the queue still use this format", 409)
+        self.custom.delete(preset_id)
+        if self.settings.current.default_preset == preset_id:
+            self.settings.update({"default_preset": "mp4-h264"})
+            self.emit_settings()
+        self._formats_changed(preset_id)
+
+    def _formats_changed(self, preset_id: str) -> None:
+        self.catalog.set_custom(self.custom.presets())
+        for job in self.jobs.values():
+            if job.options.preset_id == preset_id and job.status == JobStatus.QUEUED:
+                job.output_path = str(self._planned_output(job))
+                self._plan_engine(job)
+                self._emit_job(job)
+        self._publish(
+            {
+                "type": "presets",
+                "presets": [view.model_dump() for view in self.preset_views()],
+                "hardware": self.hardware_summary(),
+            }
+        )
 
     @staticmethod
     def _subtitle_charenc(options: JobOptions) -> str | None:

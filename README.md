@@ -13,6 +13,7 @@ Modern video and audio converter powered by FFmpeg. The same web-based UI runs a
   - **Audio**: MP3, M4A (AAC), Opus, FLAC, ALAC (Apple Lossless) and WAV.
   - **No re-encoding**: lossless remuxing to MKV/MP4.
   - **Classic**: AVI (Xvid), WMV, FLV and DVD/SVCD/VCD (PAL and NTSC), kept for old players.
+- **Your own formats**: a format editor covers container, codec, quality, 10-bit color, resolution and frame-rate limits, audio, CPU/GPU preference and a vetted set of extra encoder options. It shows a live preview of the exact FFmpeg command and flags combinations that cannot work before you save. Built-in formats can be duplicated and tweaked, and every format shows its parameters and the command it runs.
 - **GPU encoding**: NVIDIA NVENC, Intel Quick Sync, VA-API (Intel/AMD on Linux), AMD AMF (Windows) and Apple VideoToolbox. At startup each GPU encoder has to pass a short test encode before it is offered. H.264, HEVC (10-bit when the GPU supports it) and AV1 formats then use the GPU automatically. You can switch this off globally or per file, and a file the GPU cannot handle is converted on the CPU instead.
 - **Live activity monitor**: per-core CPU load, memory and GPU load (video encoder, decoder, VRAM), each with a minute of history, plus the CPU use of every running conversion.
 - **HDR aware**: 10-bit formats keep HDR10/HLG; 8-bit formats tone-map HDR to SDR (BT.709) so colors don't look washed out (needs FFmpeg with `zscale`, included in the Docker image).
@@ -54,7 +55,7 @@ The container runs as an unprivileged user, ships FFmpeg and subtitle fonts, and
 ### Command line
 
 ```bash
-stallion presets                                    # list format ids
+stallion presets                                    # list format ids (yours included)
 stallion convert *.mkv -p mp4-h265 -o converted/ --max-height 1080 -j 2
 stallion convert talk.mp4 -p mp3 --subtitles none
 stallion convert clip.mov -p share-size -q 25                   # fit in 25 MB
@@ -87,6 +88,7 @@ The desktop app picks a random port and token on every launch and passes them to
 - Every API call requires the token, sent as an `HttpOnly`, `SameSite=Strict` cookie or an `Authorization: Bearer` header. The WebSocket also checks the `Origin`.
 - File access is confined to the media roots after resolving `..` and symlinks, so URLs and other FFmpeg protocols never reach `ffmpeg`/`ffprobe`.
 - The FFmpeg binary is chosen by the server, never by the client.
+- Custom formats are built from fixed codec tables. Their extra options must match an allowlist of encoder flags, each with a strict value pattern, so a format can never add inputs, outputs, filters, file paths or protocols.
 - FFmpeg runs with `-nostdin`, its output pipes are drained concurrently (no deadlocks on noisy input), and every child process is terminated on cancel, window close or shutdown.
 - Responses carry a strict Content-Security-Policy, `X-Frame-Options: DENY` and `nosniff`.
 

@@ -19,6 +19,7 @@ from starlette.types import ASGIApp, Scope
 from .. import __version__
 from ..config import AppConfig
 from ..engine.command import OptionsError
+from ..engine.custom import CustomPresetStore
 from ..engine.ffmpeg import FFmpegInfo, FFmpegNotFoundError, discover
 from ..engine.presets import PresetCatalog
 from ..fs import FileSystem, PathError
@@ -119,6 +120,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             fs=fs,
             cache_dir=config.cache_dir,
             detect_gpu=config.detect_gpu,
+            custom=CustomPresetStore(config.formats_path),
         )
         app.state.ctx = AppContext(config, ffmpeg, ffmpeg_error, settings, catalog, fs, manager)
         await manager.start()
