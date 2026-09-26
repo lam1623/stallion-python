@@ -70,6 +70,8 @@ async def system_info(ctx: AppContext = Depends(get_ctx)) -> dict[str, Any]:
             # HDR sources are tone-mapped to SDR for 8-bit formats only when zscale exists
             "can_tonemap": bool(ff and ff.has_filter("zscale")),
         },
+        # GPU encoders proven by a test encode ("detecting" for the first seconds after start)
+        "hardware": ctx.manager.hardware_summary(),
     }
 
 
@@ -96,8 +98,7 @@ async def put_settings(body: SettingsPatch, ctx: AppContext = Depends(get_ctx)) 
     if "default_preset" in patch and patch["default_preset"] not in ctx.catalog:
         raise ManagerError("unknown_preset", "Unknown format", 422)
     updated = ctx.settings.update(patch)
-    ctx.manager.emit_settings()
-    ctx.manager.schedule()
+    ctx.manager.settings_changed()
     return updated
 
 

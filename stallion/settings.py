@@ -28,6 +28,8 @@ class Settings(BaseModel):
     notify_on_finish: bool = True
     theme: Literal["system", "dark", "light"] = "light"
     language: Literal["auto", "es", "en"] = "auto"
+    # Encode on the GPU when this machine has a working GPU encoder for the format
+    gpu_encoding: bool = True
 
 
 class SettingsPatch(BaseModel):
@@ -45,6 +47,7 @@ class SettingsPatch(BaseModel):
     notify_on_finish: bool | None = None
     theme: Literal["system", "dark", "light"] | None = None
     language: Literal["auto", "es", "en"] | None = None
+    gpu_encoding: bool | None = None
 
 
 class SettingsStore:

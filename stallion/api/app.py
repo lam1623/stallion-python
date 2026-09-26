@@ -113,7 +113,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         catalog = PresetCatalog.builtin(ffmpeg)
         fs = FileSystem(config.media_roots)
         manager = JobManager(
-            ffmpeg=ffmpeg, catalog=catalog, settings=settings, fs=fs, cache_dir=config.cache_dir
+            ffmpeg=ffmpeg,
+            catalog=catalog,
+            settings=settings,
+            fs=fs,
+            cache_dir=config.cache_dir,
+            detect_gpu=config.detect_gpu,
         )
         app.state.ctx = AppContext(config, ffmpeg, ffmpeg_error, settings, catalog, fs, manager)
         await manager.start()

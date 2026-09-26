@@ -51,6 +51,8 @@ class AppConfig:
     ffprobe_bin: str | None = None
     desktop: bool = False
     static_dir: Path | None = None
+    # Look for GPU encoders at startup (STALLION_HWENC=0 turns it off)
+    detect_gpu: bool = field(default_factory=lambda: gpu_detection_from_env())
 
     @property
     def cache_dir(self) -> Path:
@@ -63,3 +65,7 @@ class AppConfig:
 
 def auth_enabled_from_env() -> bool:
     return _env_bool("STALLION_AUTH", True)
+
+
+def gpu_detection_from_env() -> bool:
+    return _env_bool("STALLION_HWENC", True)

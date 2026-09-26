@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from stallion.engine.ffmpeg import FFmpegInfo
+from stallion.engine.hwaccel import GpuEncoder, HardwareEncoders
 from stallion.engine.presets import PresetCatalog
 from stallion.fs import FileSystem
 from stallion.jobs import JobManager, JobStatus, ManagerError
@@ -37,6 +38,7 @@ async def manager(ffmpeg_info: FFmpegInfo, media_dir: Path, tmp_path: Path) -> A
         settings=settings,
         fs=FileSystem([media_dir, tmp_path]),
         cache_dir=tmp_path / "cache",
+        detect_gpu=False,
     )
     (tmp_path / "out").mkdir()
     await mgr.start()
@@ -148,6 +150,7 @@ async def test_shutdown_leaves_no_ffmpeg_behind(
         settings=SettingsStore(None, Settings(output_dir=str(tmp_path))),
         fs=FileSystem([long_video.parent, tmp_path]),
         cache_dir=tmp_path / "cache",
+        detect_gpu=False,
     )
     await mgr.start()
     [job], _ = await mgr.add_files([str(long_video)], {"preset_id": "mp4-h265"})
@@ -157,3 +160,36 @@ async def test_shutdown_leaves_no_ffmpeg_behind(
     await mgr.shutdown()
     assert exited(run)
     assert not Path(job.output_path).exists()
+
+
+async def test_gpu_failure_falls_back_to_the_cpu(manager: JobManager, media_dir: Path) -> None:
+    # An encoder this ffmpeg does not have fails like a GPU without drivers would
+    broken = GpuEncoder("nvenc", "h264", "h264_stallion_missing", ten_bit=False)
+    manager.hardware = HardwareEncoders("nvenc", None, {"h264": broken})
+    jobs, _ = await manager.add_files(
+        [str(media_dir / "clip.mp4"), str(media_dir / "movie.mkv")],
+        {"speed": "fast", "subtitle_mode": "none"},
+    )
+    gpu_job, cpu_job = jobs
+    assert (gpu_job.engine, gpu_job.encoder) == ("gpu", "h264_stallion_missing")
+    assert "h264_stallion_missing" in manager.format_command(manager.command_preview(gpu_job.id))
+    manager.update_options(cpu_job.id, {"accel": "cpu"})
+    assert (cpu_job.engine, cpu_job.encoder) == ("cpu", "libx264")
+
+    manager.start_queue()
+    await wait_for(lambda: all(job.status == JobStatus.COMPLETED for job in jobs))
+    assert gpu_job.gpu_fallback and (gpu_job.engine, gpu_job.encoder) == ("cpu", "libx264")
+    assert Path(gpu_job.output_path).stat().st_size > 0
+    assert "failed, converted on the CPU instead" in manager.logs[gpu_job.id][0]
+    # The log view shows the command that really ran
+    assert "libx264" in manager.format_command(manager.command_preview(gpu_job.id))
+    assert not cpu_job.gpu_fallback
+
+    # Retrying plans the GPU again; switching GPU encoding off re-plans queued files
+    manager.retry_job(gpu_job.id)
+    assert gpu_job.engine == "gpu" and not gpu_job.gpu_fallback
+    manager.pause_queue()
+    manager.settings.update({"gpu_encoding": False})
+    manager.settings_changed()
+    assert gpu_job.engine == "cpu"
+    assert manager.hardware_summary()["presets"]

@@ -26,6 +26,36 @@ function Toggle({ field }: { field: keyof Settings }) {
   return <Switch checked={value} onCheckedChange={(checked) => void saveSettings({ [field]: checked })} />;
 }
 
+const CODEC_LABELS: Record<string, string> = { h264: "H.264", hevc: "HEVC", av1: "AV1" };
+
+function GpuRow() {
+  const t = useT();
+  const hardware = useStore((s) => s.system?.hardware);
+  const enabled = useStore((s) => s.settings?.gpu_encoding ?? true);
+  let description: string;
+  if (!hardware || hardware.state === "detecting") description = t("set.gpuDetecting");
+  else if (!hardware.available) description = t("set.gpuNone");
+  else {
+    const codecs = hardware.codecs
+      .map((codec) => `${CODEC_LABELS[codec] ?? codec}${hardware.ten_bit.includes(codec) ? " 10-bit" : ""}`)
+      .join(", ");
+    description = t("set.gpuHint", { label: hardware.label ?? "GPU", codecs });
+  }
+  return (
+    <Row
+      title={t("set.gpu")}
+      description={description}
+      control={
+        <Switch
+          checked={!!hardware?.available && enabled}
+          disabled={!hardware?.available}
+          onCheckedChange={(checked) => void saveSettings({ gpu_encoding: checked })}
+        />
+      }
+    />
+  );
+}
+
 export function SettingsView() {
   const t = useT();
   const lang = useLang();
@@ -122,6 +152,7 @@ export function SettingsView() {
               />
             }
           />
+          <GpuRow />
           <Row title={t("set.autoStart")} description={t("set.autoStartHint")} control={<Toggle field="auto_start" />} />
           <Row title={t("set.overwrite")} description={t("set.overwriteHint")} control={<Toggle field="overwrite" />} />
           <Row title={t("set.deletePartial")} control={<Toggle field="delete_partial" />} />

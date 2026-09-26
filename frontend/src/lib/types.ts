@@ -3,6 +3,8 @@
 export type JobStatus = "queued" | "running" | "paused" | "completed" | "failed" | "canceled";
 export type SubtitleMode = "none" | "soft" | "burn";
 export type Speed = "fast" | "balanced" | "quality";
+/** "auto" follows the GPU setting; "cpu"/"gpu" pin the choice for one file */
+export type Accel = "auto" | "cpu" | "gpu";
 export type PresetCategory = "video" | "social" | "editing" | "audio" | "remux" | "legacy";
 export type Localized = Record<string, string>;
 
@@ -21,6 +23,7 @@ export interface JobOptions {
   preset_id: string;
   quality: number | null;
   speed: Speed;
+  accel: Accel;
   max_height: number | null;
   audio_bitrate_kbps: number | null;
   volume_db: number;
@@ -112,6 +115,11 @@ export interface Job {
   started_at: number | null;
   finished_at: number | null;
   output_size: number | null;
+  /** Planned while queued, the real one once started */
+  engine: "cpu" | "gpu";
+  encoder: string | null;
+  /** The GPU encoder failed and the CPU finished the job */
+  gpu_fallback: boolean;
   revision: number;
 }
 
@@ -179,6 +187,19 @@ export interface Settings {
   notify_on_finish: boolean;
   theme: "system" | "dark" | "light";
   language: "auto" | "es" | "en";
+  gpu_encoding: boolean;
+}
+
+/** GPU encoders that passed a test encode on this machine. */
+export interface HardwareInfo {
+  state: "detecting" | "ready";
+  available: boolean;
+  backend: string | null;
+  label: string | null;
+  codecs: string[];
+  ten_bit: string[];
+  /** Formats this machine can encode on the GPU */
+  presets: string[];
 }
 
 export interface Root {
@@ -200,6 +221,7 @@ export interface SystemInfo {
     error: string | null;
     can_tonemap: boolean;
   };
+  hardware: HardwareInfo;
 }
 
 export type EntryKind = "dir" | "video" | "audio" | "subtitle" | "file";
@@ -259,4 +281,5 @@ export type ServerEvent =
   | { type: "queue_finished"; counts: Record<JobStatus, number> }
   | { type: "settings"; settings: Settings }
   | ({ type: "system" } & SystemStats)
+  | { type: "hardware"; hardware: HardwareInfo }
   | { type: "resync" };

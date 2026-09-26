@@ -11,6 +11,7 @@ import {
   RotateCcw,
   Square,
   Trash2,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { memo, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
@@ -245,6 +246,28 @@ function SubtitleChip({ job }: { job: Job }) {
   );
 }
 
+/** Where the video is (or will be) encoded, when that is the GPU; a warning if the GPU gave up. */
+function EngineBadge({ job }: { job: Job }) {
+  const t = useT();
+  if (job.gpu_fallback) {
+    return (
+      <Tip content={t("job.gpuFallback")}>
+        <span aria-label={t("job.gpuFallback")} className="inline-grid size-5 shrink-0 place-items-center text-warning">
+          <TriangleAlert className="size-3.5" />
+        </span>
+      </Tip>
+    );
+  }
+  if (job.engine !== "gpu") return null;
+  return (
+    <Tip content={t("job.onGpu", { encoder: job.encoder ?? "" })}>
+      <span className="inline-flex h-5 shrink-0 items-center rounded-md bg-viz-gpu/15 px-1.5 text-[10px] font-bold tracking-wide text-fg">
+        GPU
+      </span>
+    </Tip>
+  );
+}
+
 /** Status line under the badge: what happens next, the error, or (when the time column is hidden) speed and ETA. */
 function StatusDetail({ job }: { job: Job }) {
   const t = useT();
@@ -370,6 +393,7 @@ export const JobRow = memo(function JobRow({ id, layout }: { id: string; layout:
       <div className={cn("min-w-0 items-center gap-2", SHOW.format)}>
         {!table && <ArrowRight className="size-3.5 shrink-0 text-subtle" />}
         <span className="truncate text-[13px] font-medium text-fg/90">{presetName}</span>
+        <EngineBadge job={job} />
         <SubtitleChip job={job} />
       </div>
 

@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 SubtitleMode = Literal["none", "soft", "burn"]
 Speed = Literal["fast", "balanced", "quality"]
+# "auto" follows the global GPU setting; "cpu"/"gpu" pin the choice for one file
+Accel = Literal["auto", "cpu", "gpu"]
 
 
 class SubtitleStyle(BaseModel):
@@ -58,6 +60,7 @@ class JobOptions(BaseModel):
     preset_id: str = "mp4-h264"
     quality: int | None = Field(None, ge=0, le=100_000)
     speed: Speed = "balanced"
+    accel: Accel = "auto"
     # Short-side limit in pixels: None keeps the preset default, 0 keeps the source size
     max_height: int | None = Field(None, ge=0, le=4320)
     audio_bitrate_kbps: int | None = Field(None, ge=8, le=1536)
