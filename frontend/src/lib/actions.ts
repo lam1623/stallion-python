@@ -44,7 +44,6 @@ export async function addPaths(paths: string[]) {
     const { jobs, errors } = await api.addJobs(paths);
     const store = useStore.getState();
     jobs.forEach(store.upsertJob);
-    if (jobs.length) store.setSelection([jobs[0].id]);
     toast.dismiss(toastId);
     if (jobs.length) {
       toast.success(jobs.length === 1 ? tr("toast.addedOne") : tr("toast.added", { count: jobs.length }));

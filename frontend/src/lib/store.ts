@@ -1,7 +1,11 @@
 import { create } from "zustand";
+import { loadPrefs, type QueueLayout, savePrefs } from "./prefs";
 import type { Job, JobOptions, Preset, Progress, QueueState, Settings, SystemInfo, SystemStats } from "./types";
 
+export type { QueueLayout } from "./prefs";
 export type View = "queue" | "formats" | "settings";
+/** Queue filter chips: "active" groups running and paused jobs. */
+export type QueueFilter = "all" | "active" | "queued" | "completed" | "failed" | "canceled";
 export type Connection = "connecting" | "online" | "offline";
 export type BrowserMode = "files" | "folder" | "subtitle";
 
@@ -40,6 +44,11 @@ interface State {
   inspectorTab: string;
   stats: SystemStats | null;
   history: Sample[];
+  queueFilter: QueueFilter;
+  queueQuery: string;
+  layout: QueueLayout;
+  pinned: boolean;
+  sidebarCollapsed: boolean;
 
   setBoot: (patch: Partial<Pick<State, "booted" | "authRequired" | "authenticated">>) => void;
   setData: (patch: Partial<Pick<State, "system" | "presets" | "settings" | "fonts">>) => void;
@@ -55,10 +64,38 @@ interface State {
   setQueue: (queue: QueueState) => void;
   patchOptions: (ids: string[], patch: Partial<JobOptions>) => void;
   applyStats: (stats: SystemStats) => void;
+  setQueueFilter: (filter: QueueFilter) => void;
+  setQueueQuery: (query: string) => void;
+  setLayout: (layout: QueueLayout) => void;
+  setPinned: (pinned: boolean) => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
 
   select: (id: string, mode?: "single" | "toggle" | "range") => void;
   setSelection: (ids: string[]) => void;
 }
+
+export function matchesFilter(job: Job, filter: QueueFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "active") return job.status === "running" || job.status === "paused";
+  return job.status === filter;
+}
+
+/** Lower case without accents, so "cancion" finds "Canción". */
+export function searchable(text: string): string {
+  return text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+}
+
+/** Jobs shown by the current filter and search, in queue order. */
+export function visibleOrder(state: Pick<State, "order" | "jobs" | "queueFilter" | "queueQuery">): string[] {
+  const query = searchable(state.queueQuery.trim());
+  if (state.queueFilter === "all" && !query) return state.order;
+  return state.order.filter((id) => {
+    const job = state.jobs[id];
+    return !!job && matchesFilter(job, state.queueFilter) && (!query || searchable(job.name).includes(query));
+  });
+}
+
+const prefs = loadPrefs();
 
 export const useStore = create<State>()((set) => ({
   booted: false,
@@ -79,6 +116,11 @@ export const useStore = create<State>()((set) => ({
   inspectorTab: "output",
   stats: null,
   history: [],
+  queueFilter: "all",
+  queueQuery: "",
+  layout: prefs.layout,
+  pinned: prefs.pinned,
+  sidebarCollapsed: prefs.sidebarCollapsed,
 
   setBoot: (patch) => set(patch),
   setData: (patch) => set(patch),
@@ -91,8 +133,7 @@ export const useStore = create<State>()((set) => ({
     set((state) => {
       const jobs = Object.fromEntries(list.map((job) => [job.id, job]));
       const order = list.map((job) => job.id);
-      const selected = state.selected.filter((id) => id in jobs);
-      return { jobs, order, queue, selected: selected.length || !order.length ? selected : [order[0]] };
+      return { jobs, order, queue, selected: state.selected.filter((id) => id in jobs) };
     }),
 
   upsertJob: (job) =>
@@ -100,10 +141,8 @@ export const useStore = create<State>()((set) => ({
       const current = state.jobs[job.id];
       // Ignore copies older than what the WebSocket already delivered
       if (current && current.revision > job.revision) return state;
-      const exists = current !== undefined;
-      const order = exists ? state.order : [...state.order, job.id];
-      const selected = state.selected.length ? state.selected : [job.id];
-      return { jobs: { ...state.jobs, [job.id]: job }, order, selected };
+      const order = current !== undefined ? state.order : [...state.order, job.id];
+      return { jobs: { ...state.jobs, [job.id]: job }, order };
     }),
 
   applyProgress: (items) =>
@@ -122,13 +161,9 @@ export const useStore = create<State>()((set) => ({
       const jobs = { ...state.jobs };
       ids.forEach((id) => delete jobs[id]);
       const order = state.order.filter((id) => !gone.has(id));
-      let selected = state.selected.filter((id) => !gone.has(id));
-      if (!selected.length && order.length) {
-        // Keep the inspector useful: select the neighbour of what was removed
-        const firstRemoved = state.order.findIndex((id) => gone.has(id));
-        selected = [order[Math.min(Math.max(firstRemoved, 0), order.length - 1)]];
-      }
-      return { jobs, order, selected };
+      const selected = state.selected.filter((id) => !gone.has(id));
+      const anchor = state.anchor && gone.has(state.anchor) ? (selected[0] ?? null) : state.anchor;
+      return { jobs, order, selected, anchor };
     }),
 
   setQueue: (queue) => set({ queue }),
@@ -140,6 +175,30 @@ export const useStore = create<State>()((set) => ({
         -HISTORY_SIZE,
       ),
     })),
+
+  // Changing what is shown drops the hidden files from the selection
+  setQueueFilter: (queueFilter) =>
+    set((state) => {
+      const shown = new Set(visibleOrder({ ...state, queueFilter }));
+      return { queueFilter, selected: state.selected.filter((id) => shown.has(id)) };
+    }),
+  setQueueQuery: (queueQuery) =>
+    set((state) => {
+      const shown = new Set(visibleOrder({ ...state, queueQuery }));
+      return { queueQuery, selected: state.selected.filter((id) => shown.has(id)) };
+    }),
+  setLayout: (layout) => {
+    savePrefs({ layout });
+    set({ layout });
+  },
+  setPinned: (pinned) => {
+    savePrefs({ pinned });
+    set({ pinned });
+  },
+  setSidebarCollapsed: (sidebarCollapsed) => {
+    savePrefs({ sidebarCollapsed });
+    set({ sidebarCollapsed });
+  },
 
   patchOptions: (ids, patch) =>
     set((state) => {
@@ -159,11 +218,13 @@ export const useStore = create<State>()((set) => ({
         return { selected, anchor: id };
       }
       if (mode === "range" && state.anchor) {
-        const a = state.order.indexOf(state.anchor);
-        const b = state.order.indexOf(id);
+        // Ranges follow what is on screen, never files hidden by the filter
+        const shown = visibleOrder(state);
+        const a = shown.indexOf(state.anchor);
+        const b = shown.indexOf(id);
         if (a >= 0 && b >= 0) {
           const [from, to] = a < b ? [a, b] : [b, a];
-          return { selected: state.order.slice(from, to + 1) };
+          return { selected: shown.slice(from, to + 1) };
         }
       }
       return { selected: [id], anchor: id };

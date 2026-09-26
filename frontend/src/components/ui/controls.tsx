@@ -137,6 +137,7 @@ export function Segmented<T extends string>({
   disabled,
   className,
   size = "md",
+  "aria-label": ariaLabel,
 }: {
   value: T;
   onValueChange: (value: T) => void;
@@ -144,12 +145,14 @@ export function Segmented<T extends string>({
   disabled?: boolean;
   className?: string;
   size?: "sm" | "md";
+  "aria-label"?: string;
 }) {
   return (
     <ToggleGroup.Root
       type="single"
       value={value}
       disabled={disabled}
+      aria-label={ariaLabel}
       onValueChange={(v) => v && onValueChange(v as T)}
       className={cn("inline-flex rounded-lg border border-border bg-elevated p-0.5", className)}
     >

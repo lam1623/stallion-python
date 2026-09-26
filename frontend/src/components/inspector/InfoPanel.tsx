@@ -40,7 +40,7 @@ export function InfoPanel({ job }: { job: Job }) {
   const [w, h] = video ? displaySize(video) : [0, 0];
 
   return (
-    <div className="space-y-6">
+    <div className="grid grid-cols-1 items-start gap-x-10 gap-y-6 @3xl:grid-cols-2 @6xl:grid-cols-4">
       <Block title={t("info.file")}>
         <Def label={t("info.location")}>
           <span className="break-all font-mono text-xs leading-relaxed text-muted">{job.input_path}</span>

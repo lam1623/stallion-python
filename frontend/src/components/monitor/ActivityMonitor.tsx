@@ -18,59 +18,75 @@ function SectionLabel({ children }: { children: ReactNode }) {
   return <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">{children}</h3>;
 }
 
-/** Compact readout for the status bar; opens the full monitor above it. */
-export function ActivityMonitor({ className }: { className?: string }) {
-  const t = useT();
-  const lang = useLang();
+/** Opens the full monitor from any trigger (a plain button, so it can take the ref). */
+export function MonitorPopover({
+  children,
+  side = "top",
+  align = "start",
+}: {
+  children: ReactNode;
+  side?: "top" | "bottom";
+  align?: "start" | "end";
+}) {
   const stats = useStore((s) => s.stats);
   const [open, setOpen] = useState(false);
-  if (!stats) return null;
-  const { cpu, gpu, memory } = stats;
-
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger asChild>
-        <button
-          aria-label={t("mon.title")}
-          className={cn(
-            "flex h-9 shrink-0 items-center gap-3 rounded-lg px-2.5 text-xs text-muted outline-none transition hover:bg-elevated hover:text-fg focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-elevated data-[state=open]:text-fg",
-            className,
-          )}
-        >
-          <span className="flex items-center gap-2">
-            <CoreBars cores={cpu.cores} compact />
-            <span className="font-semibold text-fg tabular">CPU {percent(cpu.total)}</span>
-          </span>
-          {gpu && (
-            <>
-              <Divider />
-              <span className="flex items-center gap-2">
-                {gpu.util != null && <Meter value={gpu.util} color="gpu" label={t("mon.gpuLoad")} className="h-1.5 w-9" />}
-                <span className="font-semibold text-fg tabular">GPU {percent(gpu.util)}</span>
-              </span>
-            </>
-          )}
-          <Divider />
-          <span className="hidden tabular xl:inline">
-            RAM {t("mon.of", { used: formatBytes(memory.used, lang), total: formatBytes(memory.total, lang) })}
-          </span>
-          <ChevronUp className="size-3.5 text-subtle" />
-        </button>
-      </Popover.Trigger>
+    <Popover.Root open={open && !!stats} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>{children}</Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
-          side="top"
-          align="start"
+          side={side}
+          align={align}
           sideOffset={10}
           collisionPadding={16}
           // Opening the panel must not jump focus (and a tooltip) onto the first core
           onOpenAutoFocus={(event) => event.preventDefault()}
           className="z-50 w-[min(900px,calc(100vw-32px))] overflow-hidden rounded-2xl border border-border-strong bg-panel shadow-2xl outline-none animate-fade-in"
         >
-          <MonitorPanel stats={stats} />
+          {stats && <MonitorPanel stats={stats} />}
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
+  );
+}
+
+/** Compact readout for the status bar; opens the full monitor above it. */
+export function ActivityMonitor({ className }: { className?: string }) {
+  const t = useT();
+  const lang = useLang();
+  const stats = useStore((s) => s.stats);
+  if (!stats) return null;
+  const { cpu, gpu, memory } = stats;
+
+  return (
+    <MonitorPopover>
+      <button
+        aria-label={t("mon.title")}
+        className={cn(
+          "flex h-8 shrink-0 items-center gap-3 rounded-lg px-2.5 text-xs text-muted outline-none transition hover:bg-elevated hover:text-fg focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-elevated data-[state=open]:text-fg",
+          className,
+        )}
+      >
+        <span className="flex items-center gap-2">
+          <CoreBars cores={cpu.cores} size="sm" />
+          <span className="font-semibold text-fg tabular">CPU {percent(cpu.total)}</span>
+        </span>
+        {gpu && (
+          <>
+            <Divider />
+            <span className="flex items-center gap-2">
+              {gpu.util != null && <Meter value={gpu.util} color="gpu" label={t("mon.gpuLoad")} className="h-1.5 w-9" />}
+              <span className="font-semibold text-fg tabular">GPU {percent(gpu.util)}</span>
+            </span>
+          </>
+        )}
+        <Divider />
+        <span className="hidden tabular xl:inline">
+          RAM {t("mon.of", { used: formatBytes(memory.used, lang), total: formatBytes(memory.total, lang) })}
+        </span>
+        <ChevronUp className="size-3.5 text-subtle" />
+      </button>
+    </MonitorPopover>
   );
 }
 
@@ -100,7 +116,7 @@ export function MonitorPanel({ stats }: { stats: SystemStats }) {
           </div>
           <span className="shrink-0 whitespace-nowrap text-3xl font-semibold tracking-tight text-fg">{percent(cpu.total)}</span>
         </div>
-        <CoreBars cores={cpu.cores} />
+        <CoreBars cores={cpu.cores} size="lg" />
         <HistoryChart values={history.map((h) => h.cpu)} times={times} color="cpu" label="CPU" />
         <div className="space-y-1.5">
           <div className="flex justify-between text-xs">
