@@ -31,6 +31,7 @@ from .engine.presets import Preset, PresetCatalog
 from .engine.probe import MediaInfo, ProbeError, probe_media
 from .engine.runner import FFmpegRun, PauseNotSupportedError, Progress, RunResult
 from .fs import FileSystem, PathError
+from .monitor import SystemMonitor
 from .settings import SettingsStore
 
 log = logging.getLogger(__name__)
@@ -108,6 +109,7 @@ class JobManager:
         settings: SettingsStore,
         fs: FileSystem,
         cache_dir: Path,
+        system_monitor: bool = True,
     ) -> None:
         self.ffmpeg = ffmpeg
         self.catalog = catalog
@@ -129,11 +131,19 @@ class JobManager:
         self._probe_limit = asyncio.Semaphore(4)
         self._thumb_limit = asyncio.Semaphore(2)
         self._closing = False
+        self._monitor = (
+            SystemMonitor(self._publish, self.active_pids, lambda: bool(self._subscribers))
+            if system_monitor
+            else None
+        )
+        self._monitor_task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------------ lifecycle
 
     async def start(self) -> None:
         self._flusher = asyncio.create_task(self._flush_progress())
+        if self._monitor is not None:
+            self._monitor_task = asyncio.create_task(self._monitor.run())
 
     async def shutdown(self) -> None:
         """Stop everything and make sure no ffmpeg process outlives the app."""
@@ -147,7 +157,9 @@ class JobManager:
         if job_tasks:
             await asyncio.wait(job_tasks, timeout=10)
         pending = [
-            t for t in [*job_tasks, *self._background, self._flusher] if t is not None and not t.done()
+            t
+            for t in [*job_tasks, *self._background, self._flusher, self._monitor_task]
+            if t is not None and not t.done()
         ]
         for task in pending:
             task.cancel()
@@ -177,6 +189,11 @@ class JobManager:
                 while not queue.empty():
                     queue.get_nowait()
                 queue.put_nowait({"type": "resync"})
+
+    def active_pids(self) -> dict[str, int]:
+        """ffmpeg process of each running job (for the activity monitor)."""
+
+        return {job_id: run.pid for job_id, run in self._runs.items() if run.pid is not None}
 
     def snapshot(self) -> Event:
         return {

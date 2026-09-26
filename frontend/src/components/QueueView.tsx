@@ -16,6 +16,7 @@ import { addFiles, addFolder, clearQueue, removeJobs, toggleQueue } from "@/lib/
 import { formatBytes, formatRelative } from "@/lib/format";
 import { useLang, useT } from "@/lib/i18n";
 import { useStore } from "@/lib/store";
+import { ActivityMonitor } from "./monitor/ActivityMonitor";
 import { cn, isMac } from "@/lib/utils";
 import { Inspector } from "./inspector/Inspector";
 import { JobCard } from "./JobCard";
@@ -204,9 +205,10 @@ function QueueFooter() {
   const status = queue.running ? t("footer.active", { count: active }) : active ? t("footer.paused") : t("footer.idle");
 
   return (
-    <footer className="border-t border-border bg-panel/70 px-6 py-3 backdrop-blur">
+    <footer className="border-t border-border bg-panel/70 px-6 py-2 backdrop-blur">
       <div className="mx-auto flex max-w-5xl items-center gap-4">
-        <span className="w-12 text-sm font-semibold text-fg tabular">{Math.floor(stats.percent)} %</span>
+        <ActivityMonitor className="-ml-2.5" />
+        <span className="w-12 shrink-0 whitespace-nowrap text-sm font-semibold text-fg tabular">{Math.floor(stats.percent)} %</span>
         <ProgressBar
           value={stats.percent}
           status={queue.running ? "running" : stats.percent >= 100 ? "completed" : "queued"}

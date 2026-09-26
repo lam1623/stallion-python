@@ -186,6 +186,7 @@ async def _convert(args: argparse.Namespace) -> int:
         settings=SettingsStore(None, settings),
         fs=FileSystem(filesystem_roots()),
         cache_dir=(args.data_dir or default_data_dir()) / "cache",
+        system_monitor=False,
     )
     if args.out_dir:
         args.out_dir.mkdir(parents=True, exist_ok=True)
