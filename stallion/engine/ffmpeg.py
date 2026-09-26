@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -10,6 +11,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
+log = logging.getLogger(__name__)
+
 # Keep Windows from flashing a console window for every ffmpeg child process
 POPEN_KWARGS: dict[str, Any] = {"creationflags": 0x08000000} if sys.platform == "win32" else {}
 
@@ -17,6 +20,11 @@ _VERSION_RE = re.compile(r"ffmpeg version (\S+)")
 _ENCODER_RE = re.compile(r"^\s*[VAS][A-Z.]{5}\s+(\S+)")
 # Flag columns: "TSC" up to FFmpeg 7, "TS" since FFmpeg 8 (command support was dropped)
 _FILTER_RE = re.compile(r"^\s*[T.][S.][C.]?\s+(\S+)\s+\S+->\S+")
+# Built into every FFmpeg: when none of them is listed, the list itself could not be read
+_NATIVE_ENCODERS = frozenset({"aac", "flac", "pcm_s16le"})
+_NATIVE_FILTERS = frozenset({"scale", "format", "volume"})
+# (ffmpeg, "encoder"/"filter", name) -> answer of a one-off `ffmpeg -h` query
+_probes: dict[tuple[str, str, str], bool] = {}
 
 
 class FFmpegNotFoundError(RuntimeError):
@@ -32,10 +40,31 @@ class FFmpegInfo:
     filters: frozenset[str] = field(default_factory=frozenset)
 
     def has_encoder(self, name: str) -> bool:
-        return name in self.encoders
+        if self.encoders:
+            return name in self.encoders
+        return probe_component(self.ffmpeg, "encoder", name)
 
     def has_filter(self, name: str) -> bool:
-        return name in self.filters
+        if self.filters:
+            return name in self.filters
+        return probe_component(self.ffmpeg, "filter", name)
+
+
+def probe_component(ffmpeg: str, kind: str, name: str) -> bool:
+    """Ask ffmpeg about a single encoder or filter (fallback when its full list could not be read).
+
+    An unclear answer counts as available: a format is never blocked by a failed check, and a
+    missing encoder still gets a clear error from ffmpeg at conversion time.
+    """
+
+    key = (ffmpeg, kind, name)
+    if key not in _probes:
+        try:
+            text = _capture([ffmpeg, "-hide_banner", "-h", f"{kind}={name}"])
+        except (OSError, subprocess.SubprocessError):
+            text = ""
+        _probes[key] = "is not recognized" not in text and "Unknown filter" not in text
+    return _probes[key]
 
 
 def _resolve_binary(explicit: str | None, env_var: str, default: str) -> str | None:
@@ -89,10 +118,28 @@ def discover(ffmpeg_bin: str | None = None, ffprobe_bin: str | None = None) -> F
 
     try:
         version_text = _capture([ffmpeg, "-hide_banner", "-version"])
-        encoders = parse_encoders(_capture([ffmpeg, "-hide_banner", "-encoders"]))
-        filters = parse_filters(_capture([ffmpeg, "-hide_banner", "-filters"]))
+        encoder_text = _capture([ffmpeg, "-hide_banner", "-encoders"])
+        filter_text = _capture([ffmpeg, "-hide_banner", "-filters"])
     except (OSError, subprocess.SubprocessError) as exc:
         raise FFmpegNotFoundError(f"ffmpeg at {ffmpeg} is not usable: {exc}") from exc
+
+    encoders = parse_encoders(encoder_text)
+    if not encoders & _NATIVE_ENCODERS:
+        log.warning(
+            "Could not read the encoder list of %s, checking encoders one by one. It began with: %r",
+            ffmpeg,
+            encoder_text[:240],
+        )
+        encoders = frozenset()
+    filters = parse_filters(filter_text)
+    if not filters & _NATIVE_FILTERS:
+        log.warning(
+            "Could not read the filter list of %s, checking filters one by one. It began with: %r",
+            ffmpeg,
+            filter_text[:240],
+        )
+        filters = frozenset()
+    log.info("FFmpeg capabilities: %d encoders, %d filters", len(encoders), len(filters))
 
     match = _VERSION_RE.search(version_text)
     return FFmpegInfo(
