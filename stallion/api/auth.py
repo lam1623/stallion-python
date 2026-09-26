@@ -26,14 +26,19 @@ def _expected_token(conn: HTTPConnection) -> str | None:
     return token
 
 
-def _supplied_token(conn: HTTPConnection) -> str | None:
-    cookie = conn.cookies.get(COOKIE_NAME)
-    if cookie:
-        return cookie
+def _supplied_tokens(conn: HTTPConnection) -> list[str]:
+    """Every credential the request carries: Bearer header, session cookie, WebSocket ``?token``."""
+
+    tokens = []
     scheme, _, value = conn.headers.get("authorization", "").partition(" ")
     if scheme.lower() == "bearer" and value.strip():
-        return value.strip()
-    return conn.query_params.get("token") if conn.scope["type"] == "websocket" else None
+        tokens.append(value.strip())
+    cookie = conn.cookies.get(COOKIE_NAME)
+    if cookie:
+        tokens.append(cookie)
+    if conn.scope["type"] == "websocket" and conn.query_params.get("token"):
+        tokens.append(conn.query_params["token"])
+    return tokens
 
 
 def _matches(supplied: str | None, expected: str) -> bool:
@@ -42,7 +47,8 @@ def _matches(supplied: str | None, expected: str) -> bool:
 
 def is_authenticated(conn: HTTPConnection) -> bool:
     expected = _expected_token(conn)
-    return expected is None or _matches(_supplied_token(conn), expected)
+    # Any valid credential is enough: a stale cookie must not mask a fresh Bearer token
+    return expected is None or any(_matches(token, expected) for token in _supplied_tokens(conn))
 
 
 def origin_allowed(conn: HTTPConnection) -> bool:

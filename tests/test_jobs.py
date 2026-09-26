@@ -193,3 +193,20 @@ async def test_gpu_failure_falls_back_to_the_cpu(manager: JobManager, media_dir:
     manager.settings_changed()
     assert gpu_job.engine == "cpu"
     assert manager.hardware_summary()["presets"]
+
+
+async def test_thumbnails_never_outlive_their_jobs(manager: JobManager, media_dir: Path) -> None:
+    [job], _ = await manager.add_files([str(media_dir / "clip.mp4")])
+    await wait_for(lambda: job.thumbnail)
+    thumb = manager.thumb_dir / f"{job.id}.jpg"
+    assert thumb.is_file()
+    await manager.remove_jobs([job.id])
+    assert not thumb.exists()
+    # A thumbnail that finishes rendering after its job was removed is discarded
+    await manager._make_thumbnail(job)
+    assert not thumb.exists()
+    # Jobs are not kept across restarts, so shutting down clears their thumbnails
+    [other], _ = await manager.add_files([str(media_dir / "movie.mkv")])
+    await wait_for(lambda: other.thumbnail)
+    await manager.shutdown()
+    assert not (manager.thumb_dir / f"{other.id}.jpg").exists()

@@ -11,7 +11,13 @@ from fastapi.testclient import TestClient
 
 from stallion.api import create_app
 from stallion.config import AppConfig
-from stallion.engine.command import SAMPLE_MEDIA, build_command, display_command
+from stallion.engine.command import (
+    SAMPLE_MEDIA,
+    OptionsError,
+    build_command,
+    display_command,
+    validate_options,
+)
 from stallion.engine.custom import (
     CustomPresetStore,
     DraftError,
@@ -92,6 +98,16 @@ def test_audio_only_and_copy_formats() -> None:
         can_tonemap=True,
     )
     assert argv[argv.index("-c:v") + 1] == "copy" and "-vf" not in argv and "loudnorm" in " ".join(argv)
+
+
+def test_copied_audio_cannot_be_filtered() -> None:
+    # FFmpeg refuses -af together with -c:a copy, so the options must never allow it
+    preset = compile_draft(draft(container="mkv", video_codec="hevc", audio_codec="copy"), "custom-4")
+    for extra in ({"volume_db": 3.0}, {"normalize_audio": True}):
+        with pytest.raises(OptionsError) as err:
+            validate_options(SAMPLE_MEDIA, preset, JobOptions(preset_id="custom-4", **extra))  # type: ignore[arg-type]
+        assert err.value.code == "remux_filters"
+    validate_options(SAMPLE_MEDIA, preset, JobOptions(preset_id="custom-4"))
 
 
 @pytest.mark.parametrize(

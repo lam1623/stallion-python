@@ -291,13 +291,13 @@ def validate_options(media: MediaInfo, preset: Preset, options: JobOptions) -> N
         if width < min_w or height < min_h:
             raise OptionsError("too_small", f"This format needs a picture of at least {min_w}×{min_h}")
     copies_video = preset.video is not None and preset.video.codec == "copy"
+    copies_audio = preset.audio is not None and preset.audio.codec == "copy"
     if (preset.remux or copies_video) and options.max_height:
         raise OptionsError("remux_filters", "Changing the resolution needs re-encoding")
-    if preset.remux:
-        if options.volume_db or options.normalize_audio:
-            raise OptionsError("remux_filters", "Changing the volume needs re-encoding")
-        if options.subtitle_mode == "burn":
-            raise OptionsError("remux_filters", "Burning subtitles needs re-encoding")
+    if (preset.remux or copies_audio) and (options.volume_db or options.normalize_audio):
+        raise OptionsError("remux_filters", "Changing the volume needs re-encoding")
+    if preset.remux and options.subtitle_mode == "burn":
+        raise OptionsError("remux_filters", "Burning subtitles needs re-encoding")
     if options.audio_track is not None and options.audio_track >= len(media.audio):
         raise OptionsError("bad_audio_track", "The selected audio track does not exist")
 
