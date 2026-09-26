@@ -108,9 +108,15 @@ export function PresetPicker({
   }, [presets, query, category, lang, audioOnly]);
 
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title={t("picker.title")} className="w-[min(900px,calc(100vw-32px))]">
-      <div className="flex min-h-[460px]">
-        <nav className="hidden w-48 shrink-0 space-y-0.5 border-r border-border p-3 sm:block">
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t("picker.title")}
+      // Fixed height: switching categories must not resize the dialog
+      className="h-[min(86vh,760px)] w-[min(900px,calc(100vw-32px))]"
+    >
+      <div className="flex h-full min-h-0">
+        <nav className="hidden w-48 shrink-0 space-y-0.5 overflow-y-auto border-r border-border p-3 sm:block">
           {(["all", ...CATEGORY_ORDER] as const).map((cat) => {
             const meta = cat === "all" ? null : CATEGORIES[cat];
             const Icon = meta?.icon;
@@ -132,8 +138,8 @@ export function PresetPicker({
             );
           })}
         </nav>
-        <div className="min-w-0 flex-1 p-4">
-          <div className="relative mb-4">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="relative mx-4 mt-4 mb-3 shrink-0">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle" />
             <Input
               autoFocus
@@ -143,34 +149,36 @@ export function PresetPicker({
               className="pl-9"
             />
           </div>
-          {groups.map(({ cat, items }) => (
-            <section key={cat} className="mb-5 last:mb-0">
-              <SectionTitle className="mb-2">{t(CATEGORIES[cat].label)}</SectionTitle>
-              <div className="grid gap-2 md:grid-cols-2">
-                {items.map((preset) => {
-                  const videoMissing = audioOnly && needsVideo(preset);
-                  const disabled = !preset.available || videoMissing;
-                  return (
-                    <PresetCard
-                      key={preset.id}
-                      preset={preset}
-                      selected={preset.id === value}
-                      disabled={disabled}
-                      note={
-                        !preset.available
-                          ? t("picker.unavailable", { encoders: preset.missing_encoders.join(", ") })
-                          : videoMissing
-                            ? t("errors.needs_video")
-                            : undefined
-                      }
-                      onSelect={() => onSelect(preset)}
-                    />
-                  );
-                })}
-              </div>
-            </section>
-          ))}
-          {!groups.length && <p className="py-16 text-center text-sm text-muted">{t("picker.noResults")}</p>}
+          <div key={category} className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+            {groups.map(({ cat, items }) => (
+              <section key={cat} className="mb-5 last:mb-0">
+                <SectionTitle className="mb-2">{t(CATEGORIES[cat].label)}</SectionTitle>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {items.map((preset) => {
+                    const videoMissing = audioOnly && needsVideo(preset);
+                    const disabled = !preset.available || videoMissing;
+                    return (
+                      <PresetCard
+                        key={preset.id}
+                        preset={preset}
+                        selected={preset.id === value}
+                        disabled={disabled}
+                        note={
+                          !preset.available
+                            ? t("picker.unavailable", { encoders: preset.missing_encoders.join(", ") })
+                            : videoMissing
+                              ? t("errors.needs_video")
+                              : undefined
+                        }
+                        onSelect={() => onSelect(preset)}
+                      />
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+            {!groups.length && <p className="py-16 text-center text-sm text-muted">{t("picker.noResults")}</p>}
+          </div>
         </div>
       </div>
     </Modal>

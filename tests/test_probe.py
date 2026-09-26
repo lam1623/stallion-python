@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import logging
+import sys
 from pathlib import Path
 
 import pytest
 
-from stallion.engine.ffmpeg import FFmpegInfo, parse_encoders, parse_filters
+from stallion.engine.ffmpeg import FFmpegInfo, discover, parse_encoders, parse_filters
 from stallion.engine.probe import ProbeError, parse_probe, probe_media
 
 from .conftest import requires_ffmpeg
@@ -99,6 +101,36 @@ def test_capability_parsers() -> None:
     ffmpeg8 = "Filters:\n  T.. = Timeline support\n  | = Source or sink filter\n  ------\n"
     ffmpeg8 += " TS zscale            V->V       Apply resizing.\n .. anullsrc          |->A       Null audio source.\n"
     assert parse_filters(ffmpeg8) == {"zscale", "anullsrc"}
+
+
+FAKE_FFMPEG = """#!/bin/sh
+case "$*" in
+  *-version*) echo "ffmpeg version 99.0-test" ;;
+  *encoder=aac*) echo "Encoder aac [AAC (Advanced Audio Coding)]:" ;;
+  *encoder=*) echo "Codec '${3#encoder=}' is not recognized by FFmpeg." ;;
+  *filter=zscale*) echo "Filter zscale" ;;
+  *filter=*) echo "Unknown filter '${3#filter=}'." ;;
+  *) echo "a listing in a format nobody expected" ;;
+esac
+"""
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="uses a shell script as a stand-in for ffmpeg")
+def test_unreadable_capability_lists_fall_back_to_single_checks(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    ffmpeg, ffprobe = tmp_path / "ffmpeg", tmp_path / "ffprobe"
+    ffmpeg.write_text(FAKE_FFMPEG)
+    ffprobe.write_text("#!/bin/sh\n")
+    ffmpeg.chmod(0o755)
+    ffprobe.chmod(0o755)
+    with caplog.at_level(logging.WARNING):
+        info = discover(str(ffmpeg), str(ffprobe))
+    assert info.version == "99.0-test" and not info.encoders and not info.filters
+    assert "Could not read the encoder list" in caplog.text
+    # Formats are judged one encoder at a time instead of all being marked as missing
+    assert info.has_encoder("aac") and not info.has_encoder("libx265")
+    assert info.has_filter("zscale") and not info.has_filter("gblur")
 
 
 @requires_ffmpeg

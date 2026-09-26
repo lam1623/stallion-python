@@ -130,7 +130,8 @@ export function FileBrowser() {
       open={!!request}
       onOpenChange={(open) => !open && close([])}
       title={title}
-      className="w-[min(860px,calc(100vw-32px))]"
+      // Fixed height: moving between folders must not resize the dialog
+      className="h-[min(86vh,720px)] w-[min(860px,calc(100vw-32px))]"
       footer={
         <>
           {mode === "files" && (
@@ -157,57 +158,59 @@ export function FileBrowser() {
         </>
       }
     >
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-5 py-3">
-        {roots.length > 1 && (
-          <Select
-            aria-label="Root"
-            className="w-44"
-            value={currentRoot}
-            options={roots.map((root) => ({ value: root.path, label: root.name, hint: root.path }))}
-            onValueChange={(value) => setPath(value)}
-          />
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={t("fb.up")}
-          title={t("fb.up")}
-          disabled={!listing?.parent}
-          onClick={() => listing?.parent && setPath(listing.parent)}
-        >
-          <ArrowUp />
-        </Button>
-        <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto text-[13px]">
-          {listing &&
-            crumbs(listing).map((crumb, index, all) => (
-              <span key={crumb.path} className="flex shrink-0 items-center gap-0.5">
-                {index > 0 && <ChevronRight className="size-3.5 text-subtle" />}
-                <button
-                  onClick={() => setPath(crumb.path)}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-md px-1.5 py-1 outline-none transition hover:bg-elevated focus-visible:ring-2 focus-visible:ring-ring",
-                    index === all.length - 1 ? "font-medium text-fg" : "text-muted",
-                  )}
-                >
-                  {index === 0 && <HardDrive className="size-3.5" />}
-                  {index === 0 ? roots.find((r) => r.path === crumb.path)?.name ?? crumb.label : crumb.label}
-                </button>
-              </span>
-            ))}
+      <div className="sticky top-0 z-10 bg-panel">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border px-5 py-3">
+          {roots.length > 1 && (
+            <Select
+              aria-label="Root"
+              className="w-44"
+              value={currentRoot}
+              options={roots.map((root) => ({ value: root.path, label: root.name, hint: root.path }))}
+              onValueChange={(value) => setPath(value)}
+            />
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={t("fb.up")}
+            title={t("fb.up")}
+            disabled={!listing?.parent}
+            onClick={() => listing?.parent && setPath(listing.parent)}
+          >
+            <ArrowUp />
+          </Button>
+          <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto text-[13px]">
+            {listing &&
+              crumbs(listing).map((crumb, index, all) => (
+                <span key={crumb.path} className="flex shrink-0 items-center gap-0.5">
+                  {index > 0 && <ChevronRight className="size-3.5 text-subtle" />}
+                  <button
+                    onClick={() => setPath(crumb.path)}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-md px-1.5 py-1 outline-none transition hover:bg-elevated focus-visible:ring-2 focus-visible:ring-ring",
+                      index === all.length - 1 ? "font-medium text-fg" : "text-muted",
+                    )}
+                  >
+                    {index === 0 && <HardDrive className="size-3.5" />}
+                    {index === 0 ? roots.find((r) => r.path === crumb.path)?.name ?? crumb.label : crumb.label}
+                  </button>
+                </span>
+              ))}
+          </div>
+          {loading && <Spinner className="text-subtle" />}
         </div>
-        {loading && <Spinner className="text-subtle" />}
-      </div>
 
-      {mode === "files" && selectable.length > 0 && (
-        <div className="flex items-center gap-3 border-b border-border px-5 py-2 text-xs text-muted">
-          <Checkbox
-            aria-label={t("fb.selectAll")}
-            checked={allChecked ? true : someChecked ? "indeterminate" : false}
-            onCheckedChange={() => setSelected(allChecked ? [] : selectable.map((e) => e.path))}
-          />
-          {t("fb.selectAll")}
-        </div>
-      )}
+        {mode === "files" && selectable.length > 0 && (
+          <div className="flex items-center gap-3 border-b border-border px-5 py-2 text-xs text-muted">
+            <Checkbox
+              aria-label={t("fb.selectAll")}
+              checked={allChecked ? true : someChecked ? "indeterminate" : false}
+              onCheckedChange={() => setSelected(allChecked ? [] : selectable.map((e) => e.path))}
+            />
+            {t("fb.selectAll")}
+          </div>
+        )}
+      </div>
 
       <div className="min-h-[340px] px-2 py-2">
         {error && <p className="px-3 py-10 text-center text-sm text-danger">{error}</p>}
