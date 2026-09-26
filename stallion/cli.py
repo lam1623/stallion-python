@@ -19,7 +19,8 @@ from .config import (
     default_media_roots,
     gpu_detection_from_env,
 )
-from .engine.ffmpeg import FFmpegNotFoundError, discover
+from .engine.custom import CustomPresetStore
+from .engine.ffmpeg import FFmpegInfo, FFmpegNotFoundError, discover
 from .engine.presets import CATEGORY_ORDER, PresetCatalog
 from .fs import FileSystem, filesystem_roots
 from .jobs import JobManager, JobStatus, ManagerError
@@ -90,6 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     presets = sub.add_parser("presets", help="list the available formats")
     presets.add_argument("--ffmpeg", help=argparse.SUPPRESS)
     presets.add_argument("--ffprobe", help=argparse.SUPPRESS)
+    presets.add_argument("--data-dir", type=Path, help=argparse.SUPPRESS)
     return parser
 
 
@@ -149,12 +151,24 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _formats(data_dir: Path | None) -> CustomPresetStore:
+    """The formats made in the app's format editor."""
+
+    return CustomPresetStore((data_dir or default_data_dir()) / "presets.json")
+
+
+def _catalog(ffmpeg: FFmpegInfo | None, data_dir: Path | None) -> PresetCatalog:
+    catalog = PresetCatalog.builtin(ffmpeg)
+    catalog.set_custom(_formats(data_dir).presets())
+    return catalog
+
+
 def cmd_presets(args: argparse.Namespace) -> int:
     try:
         ffmpeg = discover(args.ffmpeg, args.ffprobe)
     except FFmpegNotFoundError:
         ffmpeg = None
-    views = PresetCatalog.builtin(ffmpeg).views()
+    views = _catalog(ffmpeg, args.data_dir).views()
     for category in CATEGORY_ORDER:
         items = [v for v in views if v.category == category]
         if not items:
@@ -180,7 +194,7 @@ async def _convert(args: argparse.Namespace) -> int:
     except FFmpegNotFoundError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    catalog = PresetCatalog.builtin(ffmpeg)
+    catalog = _catalog(ffmpeg, args.data_dir)
     if args.preset not in catalog:
         print(f"error: unknown preset '{args.preset}' (see `stallion presets`)", file=sys.stderr)
         return 2
@@ -200,6 +214,7 @@ async def _convert(args: argparse.Namespace) -> int:
         cache_dir=(args.data_dir or default_data_dir()) / "cache",
         system_monitor=False,
         detect_gpu=args.accel != "cpu" and gpu_detection_from_env(),
+        custom=_formats(args.data_dir),
     )
     if args.out_dir:
         args.out_dir.mkdir(parents=True, exist_ok=True)

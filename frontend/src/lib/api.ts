@@ -1,4 +1,17 @@
-import type { AddError, FsListing, Job, JobOptions, Preset, QueueState, Root, Settings, SystemInfo } from "./types";
+import type {
+  AddError,
+  FormatDraft,
+  FormatExample,
+  FormatPreview,
+  FsListing,
+  Job,
+  JobOptions,
+  Preset,
+  QueueState,
+  Root,
+  Settings,
+  SystemInfo,
+} from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -57,6 +70,12 @@ export const api = {
 
   system: () => request<SystemInfo>("GET", "/api/system"),
   presets: () => request<Preset[]>("GET", "/api/presets"),
+  presetExample: (id: string) => request<FormatExample>("GET", `/api/presets/${encodeURIComponent(id)}/command`),
+  previewFormat: (draft: FormatDraft) => request<FormatPreview>("POST", "/api/presets/preview", { draft }),
+  createFormat: (draft: FormatDraft) => request<Preset>("POST", "/api/presets", draft),
+  updateFormat: (id: string, draft: FormatDraft) =>
+    request<Preset>("PUT", `/api/presets/${encodeURIComponent(id)}`, draft),
+  deleteFormat: (id: string) => request<void>("DELETE", `/api/presets/${encodeURIComponent(id)}`),
   fonts: () => request<string[]>("GET", "/api/fonts"),
   settings: () => request<Settings>("GET", "/api/settings"),
   saveSettings: (patch: Partial<Settings>) => request<Settings>("PUT", "/api/settings", patch),

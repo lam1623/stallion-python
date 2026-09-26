@@ -5,13 +5,15 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from importlib import resources
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .ffmpeg import FFmpegInfo
+from .options import Accel
 
-Category = Literal["video", "social", "editing", "audio", "remux", "legacy"]
+# "custom": formats made in the editor (see custom.py)
+Category = Literal["custom", "video", "social", "editing", "audio", "remux", "legacy"]
 # crf: lower is better · bitrate: kbps · quality: 0-100, higher is better · size: target size in MB
 RateControl = Literal["crf", "bitrate", "quality", "size", "none"]
 SpeedFamily = Literal["x26x", "svtav1", "vpx"]
@@ -24,7 +26,7 @@ TARGET_ENCODERS: dict[str, set[str]] = {
     "vcd": {"mpeg1video", "mp2"},
 }
 
-CATEGORY_ORDER: tuple[Category, ...] = ("video", "social", "editing", "audio", "remux", "legacy")
+CATEGORY_ORDER: tuple[Category, ...] = ("custom", "video", "social", "editing", "audio", "remux", "legacy")
 
 
 class _Strict(BaseModel):
@@ -85,13 +87,16 @@ class Preset(_Strict):
     # "gif": per-frame palette generation for high-quality GIFs
     animation: Literal["gif"] | None = None
     output_args: list[str] = []
+    # Preferred video encoder; the global GPU setting decides "auto", a per-file choice wins
+    accel: Accel = "auto"
     tags: list[str] = []
 
     @property
     def keeps_hdr(self) -> bool:
         """Whether HDR sources can stay HDR (10-bit or copied video); otherwise they are tone-mapped."""
 
-        return self.remux or (self.video is not None and self.video.high_bit_depth)
+        video = self.video
+        return self.remux or (video is not None and (video.codec == "copy" or video.high_bit_depth))
 
     @property
     def frame_size(self) -> tuple[int, int] | None:
@@ -121,11 +126,17 @@ class PresetView(Preset):
 
     available: bool = True
     missing_encoders: list[str] = []
+    custom: bool = False
+    # The editor's version of this preset ("duplicate and edit"), when it can express it
+    draft: dict[str, Any] | None = None
 
 
 class PresetCatalog:
+    """Built-in presets plus the user's custom formats (which live in their own store)."""
+
     def __init__(self, presets: list[Preset], ffmpeg: FFmpegInfo | None = None) -> None:
-        self._presets = {p.id: p for p in presets}
+        self._builtin = {p.id: p for p in presets}
+        self._custom: dict[str, Preset] = {}
         self._ffmpeg = ffmpeg
 
     @classmethod
@@ -133,27 +144,55 @@ class PresetCatalog:
         raw = json.loads(resources.files("stallion.engine").joinpath("presets.json").read_text("utf-8"))
         return cls([Preset.model_validate(item) for item in raw["presets"]], ffmpeg)
 
+    def set_custom(self, presets: list[Preset]) -> None:
+        self._custom = {p.id: p for p in presets if p.id not in self._builtin}
+
+    def is_custom(self, preset_id: str) -> bool:
+        return preset_id in self._custom
+
+    @property
+    def _presets(self) -> dict[str, Preset]:
+        return {**self._custom, **self._builtin}
+
     def __contains__(self, preset_id: object) -> bool:
-        return preset_id in self._presets
+        return preset_id in self._builtin or preset_id in self._custom
 
     def __iter__(self) -> Iterator[Preset]:
         return iter(self._presets.values())
 
     def get(self, preset_id: str) -> Preset:
-        try:
-            return self._presets[preset_id]
-        except KeyError:
-            raise KeyError(f"Unknown preset '{preset_id}'") from None
+        preset = self._builtin.get(preset_id) or self._custom.get(preset_id)
+        if preset is None:
+            raise KeyError(f"Unknown preset '{preset_id}'")
+        return preset
 
     def missing_encoders(self, preset: Preset) -> list[str]:
         if self._ffmpeg is None:
             return sorted(preset.required_encoders())
         return sorted(e for e in preset.required_encoders() if not self._ffmpeg.has_encoder(e))
 
-    def views(self) -> list[PresetView]:
+    def views(self, drafts: dict[str, Any] | None = None) -> list[PresetView]:
+        """``drafts`` are the stored editor drafts of the custom formats, by id."""
+
+        from .custom import draft_from_preset  # custom.py builds on this module
+
         ordered = sorted(self._presets.values(), key=lambda p: CATEGORY_ORDER.index(p.category))
         views = []
         for preset in ordered:
             missing = self.missing_encoders(preset)
-            views.append(PresetView(**preset.model_dump(), available=not missing, missing_encoders=missing))
+            custom = preset.id in self._custom
+            if custom:
+                draft = (drafts or {}).get(preset.id)
+            else:
+                derived = draft_from_preset(preset)
+                draft = derived.model_dump() if derived else None
+            views.append(
+                PresetView(
+                    **preset.model_dump(),
+                    available=not missing,
+                    missing_encoders=missing,
+                    custom=custom,
+                    draft=draft,
+                )
+            )
         return views

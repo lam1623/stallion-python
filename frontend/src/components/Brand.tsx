@@ -18,6 +18,7 @@ import {
   MonitorPlay,
   Music,
   Share2,
+  SlidersHorizontal,
   Smartphone,
   Sparkles,
   Sun,
@@ -51,6 +52,12 @@ interface CategoryMeta {
 }
 
 export const CATEGORIES: Record<PresetCategory, CategoryMeta> = {
+  custom: {
+    icon: SlidersHorizontal,
+    label: "cat.custom",
+    hint: "cat.custom.hint",
+    tint: "bg-brand text-white shadow-[0_6px_16px_-10px_var(--glow)]",
+  },
   video: {
     icon: Film,
     label: "cat.video",
@@ -89,7 +96,7 @@ export const CATEGORIES: Record<PresetCategory, CategoryMeta> = {
   },
 };
 
-export const CATEGORY_ORDER: PresetCategory[] = ["video", "social", "editing", "audio", "remux", "legacy"];
+export const CATEGORY_ORDER: PresetCategory[] = ["custom", "video", "social", "editing", "audio", "remux", "legacy"];
 
 const PRESET_ICONS: Record<string, LucideIcon> = {
   "mp4-av1": Sparkles,

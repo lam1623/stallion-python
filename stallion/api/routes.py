@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .. import __version__
+from ..engine.custom import FormatDraft
 from ..engine.presets import PresetView
 from ..fonts import list_fonts
 from ..fs import Listing, Root
@@ -77,7 +78,37 @@ async def system_info(ctx: AppContext = Depends(get_ctx)) -> dict[str, Any]:
 
 @router.get("/presets")
 async def presets(ctx: AppContext = Depends(get_ctx)) -> list[PresetView]:
-    return ctx.catalog.views()
+    return ctx.manager.preset_views()
+
+
+class PreviewRequest(BaseModel):
+    # Checked by the manager, so half-filled editor forms still get a useful answer
+    draft: dict[str, Any]
+
+
+@router.post("/presets/preview")
+async def preview_format(body: PreviewRequest, ctx: AppContext = Depends(get_ctx)) -> dict[str, Any]:
+    return ctx.manager.preview_format(body.draft)
+
+
+@router.post("/presets", status_code=status.HTTP_201_CREATED)
+async def create_format(draft: FormatDraft, ctx: AppContext = Depends(get_ctx)) -> PresetView:
+    return ctx.manager.save_format(None, draft)
+
+
+@router.put("/presets/{preset_id}")
+async def update_format(preset_id: str, draft: FormatDraft, ctx: AppContext = Depends(get_ctx)) -> PresetView:
+    return ctx.manager.save_format(preset_id, draft)
+
+
+@router.delete("/presets/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_format(preset_id: str, ctx: AppContext = Depends(get_ctx)) -> None:
+    ctx.manager.delete_format(preset_id)
+
+
+@router.get("/presets/{preset_id}/command")
+async def preset_command(preset_id: str, ctx: AppContext = Depends(get_ctx)) -> dict[str, Any]:
+    return ctx.manager.preset_example(preset_id)
 
 
 @router.get("/fonts")

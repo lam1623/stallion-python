@@ -11,7 +11,7 @@ from pathlib import Path
 from .hwaccel import GpuPlan
 from .options import JobOptions, SubtitleStyle
 from .presets import Preset, VideoSpec
-from .probe import ASS_SUBTITLE_CODECS, MediaInfo, SubtitleStream, VideoStream
+from .probe import ASS_SUBTITLE_CODECS, AudioStream, MediaInfo, SubtitleStream, VideoStream
 
 SUBTITLE_EXTENSIONS = (".srt", ".ass", ".ssa", ".vtt")
 MKV_COPYABLE_SUBTITLES = frozenset(
@@ -165,7 +165,7 @@ def scale_limits(
     """Return (short-side limit, device bounding box) for this preset/options pair."""
 
     spec = preset.video
-    if spec is None or preset.fixed_resolution or preset.remux:
+    if spec is None or preset.fixed_resolution or preset.remux or spec.codec == "copy":
         return None, None
     box = (spec.max_width, spec.max_height) if spec.max_width and spec.max_height else None
     default_short = auto_short_side or (spec.max_height if box is None else None)
@@ -290,9 +290,10 @@ def validate_options(media: MediaInfo, preset: Preset, options: JobOptions) -> N
         width, height = size or square_pixel_size(media.video)
         if width < min_w or height < min_h:
             raise OptionsError("too_small", f"This format needs a picture of at least {min_w}×{min_h}")
+    copies_video = preset.video is not None and preset.video.codec == "copy"
+    if (preset.remux or copies_video) and options.max_height:
+        raise OptionsError("remux_filters", "Changing the resolution needs re-encoding")
     if preset.remux:
-        if options.max_height:
-            raise OptionsError("remux_filters", "Changing the resolution needs re-encoding")
         if options.volume_db or options.normalize_audio:
             raise OptionsError("remux_filters", "Changing the volume needs re-encoding")
         if options.subtitle_mode == "burn":
@@ -411,6 +412,36 @@ def _blur_fill(width: int, height: int) -> str:
         f"[{{out}}fg]scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,"
         "setsar=1[{out}f];[{out}b][{out}f]overlay=(W-w)/2:(H-h)/2[{out}]"
     )
+
+
+# A typical source for command previews of formats (no real file involved)
+SAMPLE_MEDIA = MediaInfo(
+    path="input.mkv",
+    format_name="matroska,webm",
+    duration_s=600.0,
+    size_bytes=750_000_000,
+    video=VideoStream(index=0, codec="h264", width=1920, height=1080, fps=30.0, pix_fmt="yuv420p"),
+    audio=[AudioStream(index=1, position=0, codec="aac", channels=2, sample_rate=48000, default=True)],
+    subtitles=[],
+)
+# Plumbing every job carries; left out when a command is shown as an example
+_QUIET_FLAGS = {"-hide_banner", "-nostdin", "-nostats", "-n", "-y"}
+_QUIET_OPTIONS = {"-loglevel", "-progress", "-max_muxing_queue_size"}
+
+
+def display_command(argv: list[str]) -> list[str]:
+    """``argv`` without the logging/progress plumbing, for showing a format's command."""
+
+    shown: list[str] = ["ffmpeg"]
+    skip = False
+    for arg in argv[1:]:
+        if skip:
+            skip = False
+        elif arg in _QUIET_OPTIONS:
+            skip = True
+        elif arg not in _QUIET_FLAGS:
+            shown.append(arg)
+    return shown
 
 
 class _VideoGraph:

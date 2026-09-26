@@ -124,7 +124,7 @@ export function PresetPicker({
     >
       <div className="flex h-full min-h-0">
         <nav className="hidden w-48 shrink-0 space-y-0.5 overflow-y-auto border-r border-border p-3 sm:block">
-          {(["all", ...CATEGORY_ORDER] as const).map((cat) => {
+          {(["all", ...CATEGORY_ORDER.filter((c) => presets.some((p) => p.category === c))] as const).map((cat) => {
             const meta = cat === "all" ? null : CATEGORIES[cat];
             const Icon = meta?.icon;
             return (

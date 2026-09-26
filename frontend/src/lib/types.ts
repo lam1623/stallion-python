@@ -5,7 +5,7 @@ export type SubtitleMode = "none" | "soft" | "burn";
 export type Speed = "fast" | "balanced" | "quality";
 /** "auto" follows the GPU setting; "cpu"/"gpu" pin the choice for one file */
 export type Accel = "auto" | "cpu" | "gpu";
-export type PresetCategory = "video" | "social" | "editing" | "audio" | "remux" | "legacy";
+export type PresetCategory = "custom" | "video" | "social" | "editing" | "audio" | "remux" | "legacy";
 export type Localized = Record<string, string>;
 
 export interface SubtitleStyle {
@@ -144,6 +144,7 @@ export interface VideoSpec {
   max_width: number | null;
   fps: number | null;
   min_frame: [number, number] | null;
+  args: string[];
 }
 
 export interface AudioSpec {
@@ -152,6 +153,7 @@ export interface AudioSpec {
   bitrate_choices: number[];
   channels: number | null;
   sample_rate: number | null;
+  args: string[];
 }
 
 export interface Preset {
@@ -160,6 +162,7 @@ export interface Preset {
   name: Localized;
   description: Localized;
   extension: string;
+  muxer: string | null;
   video: VideoSpec | null;
   audio: AudioSpec | null;
   target: string | null;
@@ -171,9 +174,53 @@ export interface Preset {
   frame: string | null;
   layout: "blur_fill" | null;
   animation: "gif" | null;
+  output_args: string[];
   tags: string[];
+  /** Preferred encoder for this format ("auto" follows the GPU setting) */
+  accel: Accel;
   available: boolean;
   missing_encoders: string[];
+  /** Made in the format editor */
+  custom: boolean;
+  /** How the editor opens it (null when the editor cannot express this preset) */
+  draft: FormatDraft | null;
+}
+
+/** What the format editor edits; mirrors stallion/engine/custom.py */
+export interface FormatDraft {
+  name: string;
+  description: string;
+  container: "mp4" | "mkv" | "webm" | "mov" | "m4a" | "mp3" | "opus" | "flac";
+  video_codec: "h264" | "hevc" | "av1" | "vp9" | "copy" | "none";
+  quality: number | null;
+  ten_bit: boolean;
+  max_height: number | null;
+  fps: number | null;
+  accel: Accel;
+  audio_codec: "aac" | "opus" | "mp3" | "flac" | "copy" | "none";
+  audio_bitrate: number | null;
+  audio_channels: "source" | "stereo" | "mono";
+  extra_args: string;
+}
+
+export interface FormatIssue {
+  code: string;
+  message: string;
+  params: Record<string, string | number>;
+}
+
+export interface FormatExample {
+  command: string;
+  engine: "cpu" | "gpu";
+  encoder: string | null;
+}
+
+export interface FormatPreview extends Partial<FormatExample> {
+  ok: boolean;
+  errors: FormatIssue[];
+  warnings: FormatIssue[];
+  tags?: string[];
+  extension?: string;
 }
 
 export interface Settings {
@@ -282,4 +329,5 @@ export type ServerEvent =
   | { type: "settings"; settings: Settings }
   | ({ type: "system" } & SystemStats)
   | { type: "hardware"; hardware: HardwareInfo }
+  | { type: "presets"; presets: Preset[]; hardware: HardwareInfo }
   | { type: "resync" };

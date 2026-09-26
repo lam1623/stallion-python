@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .ffmpeg import POPEN_KWARGS, FFmpegInfo
-from .options import JobOptions, Speed
+from .options import Accel, JobOptions, Speed
 from .presets import Preset, VideoSpec
 
 log = logging.getLogger(__name__)
@@ -119,10 +119,11 @@ class HardwareEncoders:
 NO_HARDWARE = HardwareEncoders()
 
 
-def wants_gpu(options: JobOptions, prefer_gpu: bool) -> bool:
-    """``accel`` "auto" follows the global setting; "cpu"/"gpu" are explicit per-file choices."""
+def wants_gpu(options: JobOptions, prefer_gpu: bool, preset_accel: Accel = "auto") -> bool:
+    """A per-file choice wins, then the format's preference, then the global setting."""
 
-    return options.accel == "gpu" or (options.accel == "auto" and prefer_gpu)
+    choice = options.accel if options.accel != "auto" else preset_accel
+    return choice == "gpu" or (choice == "auto" and prefer_gpu)
 
 
 def _scaled_quality(value: int, family: Family, top: int) -> int:

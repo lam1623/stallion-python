@@ -233,7 +233,10 @@ function EngineField({
   if (support === "none" || !hardware) return null;
   const [job] = jobs;
   const accel = job.options.accel;
-  const onGpu = support === "ok" && (accel === "gpu" || (accel === "auto" && preferGpu));
+  // A per-file choice wins, then the format's own preference, then the global setting
+  const choice = accel !== "auto" ? accel : preset.accel;
+  const autoGpu = preset.accel === "gpu" || (preset.accel === "auto" && preferGpu);
+  const onGpu = support === "ok" && (choice === "gpu" || (choice === "auto" && preferGpu));
   let hint = onGpu ? t("opt.engineHint.gpu", { label: hardware.label ?? "GPU" }) : t("opt.engineHint.cpu");
   if (support === "format") hint = t("opt.engineHint.format");
   else if (support === "tenBit") hint = t("opt.engineHint.tenBit");
@@ -246,7 +249,7 @@ function EngineField({
         disabled={disabled || support !== "ok"}
         onValueChange={onChange}
         options={[
-          { value: "auto", label: t("opt.engine.auto", { engine: support === "ok" && preferGpu ? "GPU" : "CPU" }) },
+          { value: "auto", label: t("opt.engine.auto", { engine: support === "ok" && autoGpu ? "GPU" : "CPU" }) },
           { value: "cpu", label: "CPU" },
           { value: "gpu", label: "GPU" },
         ]}
@@ -301,7 +304,7 @@ export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) 
   const video = jobs.find((j) => j.media.video)?.media.video ?? null;
   const hasAudio = jobs.some((j) => j.media.audio.length > 0);
   const spec = preset.video;
-  const encodesVideo = !!spec && !!video && !preset.remux;
+  const encodesVideo = !!spec && !!video && !preset.remux && spec.codec !== "copy";
   const showQuality = encodesVideo && ["crf", "bitrate", "quality"].includes(spec.rate_control);
   const showSize = encodesVideo && spec.rate_control === "size";
   const showResolution = encodesVideo;
