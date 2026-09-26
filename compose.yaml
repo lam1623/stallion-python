@@ -7,6 +7,8 @@ services:
         # "1" adds the VA-API drivers for GPU encoding on Intel/AMD hosts (and uncomment `devices` below)
         VAAPI: "${STALLION_VAAPI:-0}"
     image: stallion:latest
+    # Rebuild on every `up` so a `git pull` is always picked up (unchanged layers come from cache)
+    pull_policy: build
     container_name: stallion
     ports:
       - "8000:8000"
