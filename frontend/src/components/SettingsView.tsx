@@ -217,7 +217,11 @@ export function SettingsView() {
               </span>
             }
           />
-          <Row title={t("set.version")} control={<span className="text-sm text-muted tabular">{system?.version}</span>} />
+          <Row
+            title={t("set.version")}
+            description={t("set.credits")}
+            control={<span className="text-sm text-muted tabular">{system?.version}</span>}
+          />
           <Row
             title={t("set.dataDir")}
             description={<span className="break-all font-mono text-xs">{system?.data_dir}</span>}
