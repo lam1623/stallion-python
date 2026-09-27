@@ -40,6 +40,8 @@ jobs:
           context: .
           file: packaging/linux/Dockerfile
           outputs: type=local,dest=dist/linux
+          # Otherwise BuildKit adds its provenance.json next to the packages (and to the release)
+          provenance: false
           cache-from: type=gha,scope=linux-packages
           cache-to: type=gha,scope=linux-packages,mode=max
       - id: version
@@ -182,6 +184,8 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          # Without attestations the registry lists only the two real platforms
+          provenance: false
           tags: ${{ env.IMAGE }}:${{ env.VERSION }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
