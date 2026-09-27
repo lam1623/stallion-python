@@ -1,0 +1,130 @@
+name: Linux packages
+
+# Builds the .deb, .rpm, Arch and portable packages, installs each one on a fresh container of
+# its distributions and, for a v* tag, publishes them as a GitHub release.
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "packaging/linux/**"
+      - ".github/workflows/packages.yml"
+      - "pyproject.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/linux/Dockerfile
+          outputs: type=local,dest=dist/linux
+          cache-from: type=gha,scope=linux-packages
+          cache-to: type=gha,scope=linux-packages,mode=max
+      - name: Match the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: test -f "dist/linux/stallion_${GITHUB_REF_NAME#v}-1_amd64.deb"
+      - run: ls -l dist/linux && cat dist/linux/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: dist/linux
+          compression-level: 0
+          retention-days: 30
+
+  test:
+    name: Test on ${{ matrix.name }}
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 24.04
+            id: ubuntu-24.04
+            image: ubuntu:24.04
+            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ./stallion_*_amd64.deb curl procps xvfb imagemagick
+          - name: Ubuntu 22.04
+            id: ubuntu-22.04
+            image: ubuntu:22.04
+            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ./stallion_*_amd64.deb curl procps xvfb imagemagick
+          - name: Debian 12
+            id: debian-12
+            image: debian:12
+            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ./stallion_*_amd64.deb curl procps xvfb imagemagick
+          - name: Fedora 42
+            id: fedora-42
+            image: fedora:42
+            install: dnf install -y ./stallion-*.x86_64.rpm curl procps-ng xorg-x11-server-Xvfb ImageMagick
+          - name: openSUSE Tumbleweed
+            id: opensuse-tumbleweed
+            image: registry.opensuse.org/opensuse/tumbleweed:latest
+            install: zypper --non-interactive install --allow-unsigned-rpm ./stallion-*.x86_64.rpm curl procps xorg-x11-server-Xvfb ImageMagick
+          - name: Arch Linux
+            id: archlinux
+            image: archlinux:latest
+            install: pacman -Syu --noconfirm && pacman -U --noconfirm ./stallion-*-x86_64.pkg.tar.zst && pacman -S --noconfirm --needed curl procps-ng xorg-server-xvfb imagemagick
+          - name: the portable tarball
+            id: portable
+            image: debian:12
+            portable: 1
+            # The .deb only brings in the libraries: the tarball's own copy is what runs
+            install: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ./stallion_*_amd64.deb curl procps xvfb imagemagick && dpkg -r stallion && tar -xzf stallion-*-linux-x86_64.tar.gz -C "$HOME" && "$HOME"/stallion-*-linux-x86_64/install.sh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-packages
+          path: pkg
+      - name: Install and try it
+        env:
+          IMAGE: ${{ matrix.image }}
+          INSTALL: ${{ matrix.install }}
+          PORTABLE: ${{ matrix.portable || 0 }}
+        run: |
+          docker run --rm -v "$PWD/pkg:/pkg" -v "$PWD/packaging/linux/smoke-test.sh:/smoke-test.sh:ro" -w /pkg \
+            -e PORTABLE -e SCREENSHOT=/pkg/window.png "$IMAGE" sh -c "$INSTALL && sh /smoke-test.sh"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: window-${{ matrix.id }}
+          path: pkg/window.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  release:
+    name: Publish the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-packages
+          path: dist/linux
+      # A release drafted on GitHub for the tag gets the packages attached; otherwise one is created
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/linux/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/linux/* \
+              --title "Stallion ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag
+          fi

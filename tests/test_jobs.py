@@ -1,0 +1,282 @@
+from __future__ import annotations
+
+import asyncio
+import shutil
+import sys
+from collections.abc import AsyncIterator, Callable
+from pathlib import Path
+
+import pytest
+
+from stallion.engine.ffmpeg import FFmpegInfo
+from stallion.engine.hwaccel import GpuEncoder, HardwareEncoders
+from stallion.engine.presets import PresetCatalog
+from stallion.fs import FileSystem
+from stallion.jobs import Event, JobManager, JobStatus, ManagerError
+from stallion.settings import Settings, SettingsStore
+
+from .conftest import requires_ffmpeg
+from .test_runner import exited
+
+pytestmark = [pytest.mark.anyio, requires_ffmpeg]
+
+
+async def wait_for(predicate: Callable[[], bool], timeout: float = 60) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not predicate():
+        if asyncio.get_running_loop().time() > deadline:
+            raise AssertionError("condition not reached in time")
+        await asyncio.sleep(0.05)
+
+
+@pytest.fixture
+async def manager(ffmpeg_info: FFmpegInfo, media_dir: Path, tmp_path: Path) -> AsyncIterator[JobManager]:
+    settings = SettingsStore(None, Settings(output_dir=str(tmp_path / "out"), concurrency=2))
+    mgr = JobManager(
+        ffmpeg=ffmpeg_info,
+        catalog=PresetCatalog.builtin(ffmpeg_info),
+        settings=settings,
+        fs=FileSystem([media_dir, tmp_path]),
+        cache_dir=tmp_path / "cache",
+        detect_gpu=False,
+    )
+    (tmp_path / "out").mkdir()
+    await mgr.start()
+    yield mgr
+    await mgr.shutdown()
+
+
+async def test_add_files_applies_smart_defaults(manager: JobManager, media_dir: Path, tmp_path: Path) -> None:
+    junk = tmp_path / "junk.mp4"
+    junk.write_text("nope")
+    jobs, errors = await manager.add_files(
+        [str(media_dir / "movie.mkv"), str(media_dir / "song.mp3"), str(junk), "/etc/passwd"]
+    )
+    by_name = {job.name: job for job in jobs}
+    assert set(by_name) == {"movie.mkv", "song.mp3"}
+    # A matching .srt next to the movie is burned in, like the classic app did
+    movie = by_name["movie.mkv"]
+    assert movie.options.subtitle_mode == "burn" and movie.options.subtitle_file == str(
+        media_dir / "movie.srt"
+    )
+    assert movie.output_path == str(tmp_path / "out" / "movie.mp4")
+    # Audio-only input gets an audio format instead of an empty MP4 video
+    assert by_name["song.mp3"].options.preset_id == "mp3"
+    assert {e["code"] for e in errors} == {"not_media", "outside_roots"}
+
+    _, again = await manager.add_files([str(media_dir / "movie.mkv")])
+    assert again[0]["code"] == "duplicate"
+    first_revision = movie.revision
+    await wait_for(lambda: all(job.thumbnail for job in jobs if job.media.video))
+    assert movie.revision > first_revision, "thumbnail updates must bump the revision"
+
+
+async def test_queue_runs_to_completion(manager: JobManager, media_dir: Path, tmp_path: Path) -> None:
+    events = manager.subscribe()
+    clash = tmp_path / "clip.mkv"
+    shutil.copy(media_dir / "movie.mkv", clash)
+    jobs, _ = await manager.add_files([str(media_dir / "clip.mp4"), str(clash)], {"speed": "fast"})
+    manager.start_queue()
+    seen: list[dict[str, object]] = []
+    while True:
+        event = await asyncio.wait_for(events.get(), 60)
+        seen.append(event)
+        if event["type"] == "queue_finished":
+            break
+    assert all(job.status == JobStatus.COMPLETED for job in jobs)
+    assert all(job.progress.percent == 100 and job.output_size for job in jobs)
+    # Both inputs map to out/clip.mp4: the second one gets a unique name
+    assert sorted(Path(job.output_path).name for job in jobs) == ["clip (1).mp4", "clip.mp4"]
+    assert {"job", "queue", "queue_finished"} <= {e["type"] for e in seen}
+    assert not manager.queue_running
+
+
+async def test_edit_validation(manager: JobManager, media_dir: Path) -> None:
+    [job], _ = await manager.add_files([str(media_dir / "clip.mp4")])
+    updated = manager.update_options(job.id, {"preset_id": "webm-vp9", "subtitle_style": {"size": 40}})
+    assert updated.output_path.endswith("clip.webm") and updated.options.subtitle_style.size == 40
+    with pytest.raises(ManagerError) as err:
+        manager.update_options(job.id, {"preset_id": "remux-mkv", "max_height": 480})
+    assert err.value.status == 422 and err.value.code == "remux_filters"
+    with pytest.raises(ManagerError) as err:
+        manager.update_options(job.id, {"subtitle_file": "/etc/hosts", "subtitle_mode": "burn"})
+    assert err.value.code == "outside_roots"
+    with pytest.raises(ManagerError):
+        manager.update_options(job.id, {"bogus": 1})
+    _, errors = manager.update_many([job.id, "missing"], {"quality": 20})
+    assert errors[0]["code"] == "job_not_found"
+
+
+async def test_cancel_pause_retry_remove(manager: JobManager, long_video: Path, tmp_path: Path) -> None:
+    manager.fs = FileSystem([*manager.fs.roots, long_video.parent])
+    [job], _ = await manager.add_files([str(long_video)], {"preset_id": "mp4-h265", "speed": "quality"})
+    manager.start_queue()
+    await wait_for(lambda: job.status == JobStatus.RUNNING and job.progress.out_time_s > 0)
+    run = manager._runs[job.id]
+    output = Path(job.output_path)
+    assert output.exists()
+    with pytest.raises(ManagerError):
+        manager.update_options(job.id, {"quality": 30})
+
+    if sys.platform != "win32":
+        manager.pause_queue()
+        assert job.status == JobStatus.PAUSED and not manager.queue_running
+        manager.start_queue()
+        assert job.status == JobStatus.RUNNING
+        manager.pause_job(job.id)
+        await asyncio.sleep(0.5)
+        frozen = job.progress.out_time_s
+        await asyncio.sleep(0.8)
+        assert job.progress.out_time_s == frozen
+        manager.resume_job(job.id)
+
+    await manager.cancel_job(job.id)
+    assert job.status == JobStatus.CANCELED
+    assert not output.exists(), "partial output must be removed"
+    assert exited(run)
+
+    manager.retry_job(job.id)
+    assert job.status == JobStatus.QUEUED and job.progress.percent == 0
+    removed = await manager.remove_jobs([job.id])
+    assert removed == [job.id] and job.id not in manager.jobs
+
+
+async def test_shutdown_leaves_no_ffmpeg_behind(
+    ffmpeg_info: FFmpegInfo, long_video: Path, tmp_path: Path
+) -> None:
+    mgr = JobManager(
+        ffmpeg=ffmpeg_info,
+        catalog=PresetCatalog.builtin(ffmpeg_info),
+        settings=SettingsStore(None, Settings(output_dir=str(tmp_path))),
+        fs=FileSystem([long_video.parent, tmp_path]),
+        cache_dir=tmp_path / "cache",
+        detect_gpu=False,
+    )
+    await mgr.start()
+    [job], _ = await mgr.add_files([str(long_video)], {"preset_id": "mp4-h265"})
+    mgr.start_queue()
+    await wait_for(lambda: job.id in mgr._runs and mgr._runs[job.id].pid is not None)
+    run = mgr._runs[job.id]
+    await mgr.shutdown()
+    assert exited(run)
+    assert not Path(job.output_path).exists()
+
+
+async def test_gpu_failure_falls_back_to_the_cpu(manager: JobManager, media_dir: Path) -> None:
+    # An encoder this ffmpeg does not have fails like a GPU without drivers would
+    broken = GpuEncoder("nvenc", "h264", "h264_stallion_missing", ten_bit=False)
+    manager.hardware = HardwareEncoders("nvenc", None, {"h264": broken})
+    jobs, _ = await manager.add_files(
+        [str(media_dir / "clip.mp4"), str(media_dir / "movie.mkv")],
+        {"speed": "fast", "subtitle_mode": "none"},
+    )
+    gpu_job, cpu_job = jobs
+    assert (gpu_job.engine, gpu_job.encoder) == ("gpu", "h264_stallion_missing")
+    assert "h264_stallion_missing" in manager.format_command(manager.command_preview(gpu_job.id))
+    manager.update_options(cpu_job.id, {"accel": "cpu"})
+    assert (cpu_job.engine, cpu_job.encoder) == ("cpu", "libx264")
+
+    manager.start_queue()
+    await wait_for(lambda: all(job.status == JobStatus.COMPLETED for job in jobs))
+    assert gpu_job.gpu_fallback and (gpu_job.engine, gpu_job.encoder) == ("cpu", "libx264")
+    assert Path(gpu_job.output_path).stat().st_size > 0
+    assert "failed, converted on the CPU instead" in manager.logs[gpu_job.id][0]
+    # The log view shows the command that really ran
+    assert "libx264" in manager.format_command(manager.command_preview(gpu_job.id))
+    assert not cpu_job.gpu_fallback
+
+    # Retrying plans the GPU again; switching GPU encoding off re-plans queued files
+    manager.retry_job(gpu_job.id)
+    assert gpu_job.engine == "gpu" and not gpu_job.gpu_fallback
+    manager.pause_queue()
+    manager.settings.update({"gpu_encoding": False})
+    manager.settings_changed()
+    assert gpu_job.engine == "cpu"
+    assert manager.hardware_summary()["presets"]
+
+
+def _drain(events: asyncio.Queue[Event]) -> list[Event]:
+    items = []
+    while not events.empty():
+        items.append(events.get_nowait())
+    return items
+
+
+async def test_more_formats_for_a_file(manager: JobManager, media_dir: Path, tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    (movie, clip), _ = await manager.add_files(
+        [str(media_dir / "movie.mkv"), str(media_dir / "clip.mp4")], {"speed": "fast"}
+    )
+    manager.update_options(movie.id, {"quality": 30, "volume_db": 3.0, "max_height": 360})
+    events = manager.subscribe()
+
+    [webm], errors = manager.add_formats([movie.id], "webm-vp9")
+    assert not errors
+    # Another job for the same file, right after it: per-format values reset, the rest carries over
+    assert list(manager.jobs) == [movie.id, webm.id, clip.id]
+    assert (webm.input_path, webm.name, webm.media) == (movie.input_path, movie.name, movie.media)
+    assert webm.options.preset_id == "webm-vp9" and webm.options.speed == "fast"
+    assert webm.options.quality is None and webm.options.max_height is None
+    assert webm.options.volume_db == 3.0 and webm.options.subtitle_mode == "burn"
+    assert webm.output_path == str(out / "movie.webm") and webm.status == JobStatus.QUEUED
+    snapshots = [e for e in _drain(events) if e["type"] == "snapshot"]
+    assert [j["id"] for j in snapshots[-1]["jobs"]] == [movie.id, webm.id, clip.id]
+    manager.unsubscribe(events)
+
+    # Outputs that would share a folder and extension are named after their format
+    [hevc], _ = manager.add_formats([webm.id], "mp4-h265")
+    [again], _ = manager.add_formats([movie.id], "mp4-h265")
+    assert hevc.output_path == str(out / "movie (HEVC).mp4")
+    assert again.output_path == str(out / "movie (HEVC 2).mp4")
+    assert list(manager.jobs) == [movie.id, webm.id, hevc.id, again.id, clip.id]
+
+    # Several files at once, each file once; copied audio cannot keep the volume change
+    remuxes, errors = manager.add_formats([movie.id, hevc.id, clip.id, "gone"], "remux-mkv")
+    assert [job.input_path for job in remuxes] == [movie.input_path, clip.input_path]
+    assert remuxes[0].options.volume_db == 0 and remuxes[0].options.subtitle_mode == "none"
+    assert [e["code"] for e in errors] == ["job_not_found"]
+    with pytest.raises(ManagerError) as info:
+        manager.add_formats([movie.id], "bogus")
+    assert info.value.code == "unknown_preset"
+    # Formats the file cannot have are reported per file
+    [song], _ = await manager.add_files([str(media_dir / "song.mp3")])
+    none, errors = manager.add_formats([song.id], "gif")
+    assert none == [] and [e["code"] for e in errors] == ["needs_video"]
+
+
+async def test_every_format_of_a_file_is_converted(manager: JobManager, media_dir: Path) -> None:
+    [movie], _ = await manager.add_files([str(media_dir / "movie.mkv")], {"speed": "fast"})
+    await wait_for(lambda: movie.thumbnail)
+    [audio], _ = manager.add_formats([movie.id], "mp3")
+    # The same format twice, e.g. at another quality
+    [smaller], _ = manager.add_formats([movie.id], "mp4-h264")
+    manager.update_options(smaller.id, {"quality": 35})
+    assert audio.thumbnail and manager.thumbnail_path(audio.id) is not None, "reuses the file's thumbnail"
+
+    manager.start_queue()
+    await wait_for(
+        lambda: all(job.status not in (JobStatus.QUEUED, JobStatus.RUNNING) for job in manager.jobs.values())
+    )
+    assert [job.status for job in manager.jobs.values()] == [JobStatus.COMPLETED] * 3, [
+        job.error for job in manager.jobs.values()
+    ]
+    names = [Path(job.output_path).name for job in manager.jobs.values()]
+    assert names == ["movie.mp4", "movie.mp3", "movie (H.264).mp4"]
+    assert all(Path(job.output_path).stat().st_size > 0 for job in manager.jobs.values())
+
+
+async def test_thumbnails_never_outlive_their_jobs(manager: JobManager, media_dir: Path) -> None:
+    [job], _ = await manager.add_files([str(media_dir / "clip.mp4")])
+    await wait_for(lambda: job.thumbnail)
+    thumb = manager.thumb_dir / f"{job.id}.jpg"
+    assert thumb.is_file()
+    await manager.remove_jobs([job.id])
+    assert not thumb.exists()
+    # A thumbnail that finishes rendering after its job was removed is discarded
+    await manager._make_thumbnail(job)
+    assert not thumb.exists()
+    # Jobs are not kept across restarts, so shutting down clears their thumbnails
+    [other], _ = await manager.add_files([str(media_dir / "movie.mkv")])
+    await wait_for(lambda: other.thumbnail)
+    await manager.shutdown()
+    assert not (manager.thumb_dir / f"{other.id}.jpg").exists()
