@@ -51,8 +51,10 @@ Before a release is published, each package is installed and tried on fresh cont
 The ready-made image runs on amd64 and arm64 machines, such as a Raspberry Pi 4 or 5 or most NAS boxes:
 
 ```bash
+# Run it as the owner of the videos folder, so the converted files can be written next to them
 docker run -d --name stallion --restart unless-stopped -p 8000:8000 \
-  -e STALLION_TOKEN=change-me -v /path/to/videos:/media \
+  --user "$(id -u):$(id -g)" -e STALLION_TOKEN=change-me \
+  -v /path/to/videos:/media -v stallion-data:/data \
   ghcr.io/lam1623/stallion-python:latest
 # open http://localhost:8000/auth?token=change-me
 ```
@@ -176,14 +178,14 @@ legacy/            the original GTK + mencoder application, kept as it was
 
 ## Releases
 
-A release is one version bump: set `__version__` in `stallion/__init__.py` and add a `<release>` entry for it to `packaging/linux/io.github.lam1623.stallion.metainfo.xml` (a test checks both). Once that reaches `master`, the [Packages and releases](.github/workflows/packages.yml) workflow:
+A release is one version bump: set `__version__` in `stallion/__init__.py` and add a `<release>` entry for it to `packaging/linux/io.github.lam1623.stallion.metainfo.xml` (a test checks both). When the commit that changes the version reaches `master`, the [Packages and releases](.github/workflows/packages.yml) workflow:
 
 1. builds the .deb, .rpm, Arch and portable packages;
 2. installs and tries each one on fresh Ubuntu 24.04, Ubuntu 22.04, Debian 12, Fedora 42, openSUSE Tumbleweed and Arch containers;
-3. publishes the `v<version>` release with every package, their checksums and install instructions;
-4. pushes `ghcr.io/lam1623/stallion-python:<version>` and `:latest` for amd64 and arm64.
+3. pushes `ghcr.io/lam1623/stallion-python:<version>` for amd64 and arm64, and runs it on both;
+4. publishes the `v<version>` release with every package, their checksums and install instructions, and points the image's `:latest` at it.
 
-Pushes that keep the version build and test the packages too, and leave them in the workflow run's artifacts.
+Other pushes build and test the packages too, and leave them in the workflow run's artifacts. If a release run fails, re-run it, or start the workflow by hand from the Actions tab: it publishes the current version when it has no release yet.
 
 ## Credits and license
 
