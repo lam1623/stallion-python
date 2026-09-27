@@ -27,6 +27,11 @@ else
   done
 fi
 stallion --version || fail "stallion --version"
+# Without a scalable font the window shows no text at all: the packages must bring one along
+# (ls rather than find, which minimal images such as openSUSE's leave out)
+# shellcheck disable=SC2010
+ls -R /usr/share/fonts /usr/local/share/fonts 2>/dev/null | grep -qiE '\.(ttf|otf|ttc)$' \
+  || fail "no scalable font installed"
 
 # Two formats this FFmpeg can encode: distributions leave out different encoders
 ffmpeg -version | head -n 1
