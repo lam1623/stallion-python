@@ -1,8 +1,73 @@
-# Stallion
+<p align="center">
+  <img src="frontend/public/favicon.svg" width="96" height="96" alt="Stallion">
+</p>
 
-Modern video and audio converter powered by FFmpeg. The same web-based UI runs as a **desktop app** (native window) or as a **self-hosted service in Docker**.
+<h1 align="center">Stallion</h1>
+
+<p align="center">
+  A friendly video and audio converter for Linux, powered by FFmpeg.<br>
+  <em>Un conversor de vídeo y audio amable, en español y en inglés.</em>
+</p>
+
+<p align="center">
+  <a href="https://github.com/lam1623/stallion-python/actions/workflows/ci.yml"><img src="https://github.com/lam1623/stallion-python/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License: GPL v3"></a>
+  <img src="https://img.shields.io/badge/runs%20on-Linux%20%C2%B7%20Docker-8b7cff" alt="Runs on Linux and Docker">
+</p>
 
 ![Stallion conversion queue](docs/screenshots/queue-light.png)
+
+Stallion turns the videos and songs you give it into the format you need: MP4 for the TV, a vertical clip for Reels, a file small enough for an email, or FLAC for your music collection. Pick a ready-made format or make your own, and Stallion takes care of FFmpeg for you. It runs as a desktop app with its own window, or as a small service on a home server that you open from any browser.
+
+## A little history
+
+<img src="legacy/icons/64x64/stallion.png" width="64" height="64" align="right" alt="The original Stallion icon">
+
+Stallion started in 2011, when **Lino Alfonso** wrote a GTK interface for mencoder, the encoder of the MPlayer project, so that converting a video took a few clicks instead of a page of command-line options. It came with presets for the formats of its day (AVI with XviD and DivX, VCD, SVCD and DVD, FLV, MP4, WMV and MP3), subtitles, a queue, a tray icon and an option to shut the computer down when the queue finished. It grew version after version until 3.0.6 in 2014, with its own website at stallionv.wordpress.com.
+
+Its building blocks did not age as well as the idea: mencoder, Python 2 and the Unity desktop are gone. **Stallion 4** is a full rebuild that keeps what made the original worth using (ready-made formats, subtitles, audio tracks, a simple queue) on a modern FFmpeg engine, and adds a new interface, GPU encoding, HDR, your own formats and several formats from one file.
+
+The original application is preserved, untouched, in [`legacy/`](legacy/).
+
+## Install
+
+### Linux packages
+
+Download the package for your distribution from the [releases page](https://github.com/lam1623/stallion-python/releases). The packages bring their own Python and Qt; your package manager adds FFmpeg and the usual desktop libraries they use.
+
+| Distribution | Package | Install with |
+| --- | --- | --- |
+| Ubuntu 22.04+, Debian 12+, Linux Mint 21+, Pop!_OS 22.04+ | `stallion_4.0.0-1_amd64.deb` | `sudo apt install ./stallion_4.0.0-1_amd64.deb` |
+| Fedora, openSUSE Tumbleweed | `stallion-4.0.0-1.x86_64.rpm` | `sudo dnf install ./stallion-4.0.0-1.x86_64.rpm` or `sudo zypper install --allow-unsigned-rpm ./stallion-4.0.0-1.x86_64.rpm` |
+| Arch, Manjaro, EndeavourOS | `stallion-4.0.0-1-x86_64.pkg.tar.zst` | `sudo pacman -U ./stallion-4.0.0-1-x86_64.pkg.tar.zst` |
+| Any other distribution with glibc 2.35+ | `stallion-4.0.0-linux-x86_64.tar.gz` | unpack it and run `./stallion`, or `./install.sh` to add it to your menu |
+
+Stallion then appears in your applications menu, and `stallion` starts it from a terminal (`stallion convert` and the other commands below work too). Fedora and openSUSE build their FFmpeg without the H.264 and HEVC software encoders (x264 and x265); the full FFmpeg from [RPM Fusion](https://rpmfusion.org/) or [Packman](https://en.opensuse.org/Additional_package_repositories#Packman) adds them. Formats your FFmpeg cannot encode stay greyed out, with the missing encoder named.
+
+To build the packages yourself: `make packages` (needs Docker) writes them to `dist/linux/`. Before every release, each package is installed and tried on fresh containers of the distributions above ([`packages.yml`](.github/workflows/packages.yml)).
+
+### Docker or a home server
+
+```bash
+cp .env.example .env        # set STALLION_TOKEN and MEDIA_DIR
+docker compose up -d        # also after a git pull: the image is rebuilt from the checkout
+# open http://localhost:8000/auth?token=<STALLION_TOKEN>
+```
+
+The container runs as an unprivileged user, ships FFmpeg and subtitle fonts, and only sees the folder mounted at `/media`. For GPU encoding on Intel or AMD hosts, set `STALLION_VAAPI=1` and `RENDER_GID` in `.env` and uncomment `devices` in `compose.yaml`: the image then includes the VA-API drivers and the container can use `/dev/dri`.
+
+### From source
+
+For development, or on a system without the packages. Requires Python 3.11+, FFmpeg and Node.js 20+ (to build the UI).
+
+```bash
+make install   # venv + backend (editable) + UI dependencies
+make run       # builds the UI and opens the native window
+```
+
+After a `git pull`, run `make run` again: it reinstalls changed dependencies, and `stallion` rebuilds the UI whenever `frontend/` changed since the last build.
+
+On Linux the native window uses Qt WebEngine (installed by the `desktop` extra). Without it, Stallion opens in your default browser instead: `stallion desktop --browser`.
 
 ## Features
 
@@ -34,32 +99,7 @@ Modern video and audio converter powered by FFmpeg. The same web-based UI runs a
 | --- | --- | --- |
 | ![Formats with their parameters and command](docs/screenshots/formats-light.png) | ![Format editor](docs/screenshots/editor-light.png) | ![Dark mode](docs/screenshots/queue-dark.png) |
 
-## Quick start
-
-### Desktop app
-
-Requires Python 3.11+, FFmpeg and Node.js 20+ (only to build the UI once).
-
-```bash
-make install   # venv + backend (editable) + UI dependencies
-make run       # builds the UI and opens the native window
-```
-
-After a `git pull`, run `make run` again: it reinstalls changed dependencies, and `stallion` rebuilds the UI whenever `frontend/` changed since the last build.
-
-On Linux the native window uses Qt WebEngine (installed by the `desktop` extra). Without it, Stallion opens in your default browser instead: `stallion desktop --browser`.
-
-### Docker / NAS
-
-```bash
-cp .env.example .env        # set STALLION_TOKEN and MEDIA_DIR
-docker compose up -d        # also after a git pull: the image is rebuilt from the checkout
-# open http://localhost:8000/auth?token=<STALLION_TOKEN>
-```
-
-The container runs as an unprivileged user, ships FFmpeg and subtitle fonts, and only sees the folder mounted at `/media`. For GPU encoding on Intel or AMD hosts, set `STALLION_VAAPI=1` and `RENDER_GID` in `.env` and uncomment `devices` in `compose.yaml`: the image then includes the VA-API drivers and the container can use `/dev/dri`.
-
-### Command line
+## Command line
 
 ```bash
 stallion presets                                    # list format ids (yours included)
@@ -119,11 +159,12 @@ stallion/api/      FastAPI REST + WebSocket, token auth, serves the web UI
 stallion/desktop.py  private local server + native window (pywebview)
 stallion/cli.py    `stallion` / `stallion serve` / `stallion convert`
 frontend/          React 19 + TypeScript + Tailwind CSS 4 + Radix UI (built into stallion/web/dist)
-legacy/            the original GTK + mencoder application, kept for reference
+packaging/linux/   .deb, .rpm, Arch and portable packages (PyInstaller + nfpm)
+legacy/            the original GTK + mencoder application, kept as it was
 ```
 
-## Legacy version
+## Credits and license
 
-Stallion 3.x was a GTK interface for mencoder (2011–2014). It needs Python 2, mencoder and Ubuntu Unity, none of which are maintained anymore; its code is preserved in [`legacy/`](legacy/). Version 4 keeps its spirit (presets, subtitles, track selection, queue) on a modern FFmpeg engine.
+Stallion is created and maintained by **Lino Alfonso** ([lleisdier.alfonso@gmail.com](mailto:lleisdier.alfonso@gmail.com)). Ideas, bugs and translations are welcome in the [issues](https://github.com/lam1623/stallion-python/issues).
 
-Copyright 2013-2014 Lino Alfonso <lino@lt.desoft.cu>
+Copyright © 2011–2026 Lino Alfonso. Stallion is free software, released like the original under the [GNU General Public License v3](LICENSE). The Linux packages bundle Python, Qt 6 and PyQt6, each under its own license, and use the FFmpeg of your system.
