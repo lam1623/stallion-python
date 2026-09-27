@@ -13,8 +13,28 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-# Keep Windows from flashing a console window for every ffmpeg child process
-POPEN_KWARGS: dict[str, Any] = {"creationflags": 0x08000000} if sys.platform == "win32" else {}
+
+def popen_kwargs(**env: str) -> dict[str, Any]:
+    """Keyword arguments for starting FFmpeg and other system programs, plus ``env`` additions.
+
+    A packaged build (PyInstaller) points LD_LIBRARY_PATH at its bundled libraries and keeps
+    the original in LD_LIBRARY_PATH_ORIG: system programs get the original back so they load
+    their own libraries. On Windows, no console window flashes up for every child process.
+    """
+
+    kwargs: dict[str, Any] = {"creationflags": 0x08000000} if sys.platform == "win32" else {}
+    frozen = getattr(sys, "frozen", False)
+    if env or frozen:
+        child = {**os.environ, **env}
+        if frozen:
+            original = child.pop("LD_LIBRARY_PATH_ORIG", None)
+            if original:
+                child["LD_LIBRARY_PATH"] = original
+            else:
+                child.pop("LD_LIBRARY_PATH", None)
+        kwargs["env"] = child
+    return kwargs
+
 
 _VERSION_RE = re.compile(r"ffmpeg version (\S+)")
 _ENCODER_RE = re.compile(r"^\s*[VAS][A-Z.]{5}\s+(\S+)")
@@ -84,7 +104,7 @@ def _capture(argv: list[str]) -> str:
         errors="replace",
         timeout=30,
         check=False,
-        **POPEN_KWARGS,
+        **popen_kwargs(),
     )
     return proc.stdout
 

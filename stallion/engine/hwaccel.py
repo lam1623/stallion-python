@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from .ffmpeg import POPEN_KWARGS, FFmpegInfo
+from .ffmpeg import FFmpegInfo, popen_kwargs
 from .options import Accel, JobOptions, Speed
 from .presets import Preset, VideoSpec
 
@@ -276,7 +276,7 @@ def _runs(argv: list[str]) -> bool:
             errors="replace",
             timeout=_TEST_TIMEOUT,
             check=False,
-            **POPEN_KWARGS,
+            **popen_kwargs(),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         log.debug("GPU test encode could not run: %s", exc)

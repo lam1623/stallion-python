@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Stallion
+GenericName=Video Converter
+GenericName[es]=Conversor de vídeo
+Comment=Convert video and audio with FFmpeg: ready-made formats, subtitles and GPU encoding
+Comment[es]=Convierte vídeo y audio con FFmpeg: formatos listos, subtítulos y codificación por GPU
+Exec=stallion
+Icon=stallion
+Terminal=false
+Categories=AudioVideo;Video;AudioVideoEditing;
+Keywords=video;audio;convert;converter;ffmpeg;mp4;webm;mkv;av1;hevc;subtitles;
+Keywords[es]=vídeo;audio;convertir;conversor;ffmpeg;mp4;webm;mkv;av1;hevc;subtítulos;
+StartupNotify=true
+StartupWMClass=stallion

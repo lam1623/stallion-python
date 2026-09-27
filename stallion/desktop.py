@@ -19,6 +19,7 @@ import uvicorn
 
 from .api import create_app
 from .config import AppConfig
+from .engine.ffmpeg import popen_kwargs
 from .fs import AUDIO_EXTENSIONS, SUBTITLE_EXTENSIONS, VIDEO_EXTENSIONS
 from .settings import SettingsStore
 
@@ -83,7 +84,9 @@ class NativeBridge:
             os.startfile(target)  # type: ignore[attr-defined]
         else:
             opener = "open" if sys.platform == "darwin" else "xdg-open"
-            subprocess.Popen([opener, str(target)], stdin=subprocess.DEVNULL, start_new_session=True)
+            subprocess.Popen(
+                [opener, str(target)], stdin=subprocess.DEVNULL, start_new_session=True, **popen_kwargs()
+            )
         return True
 
 

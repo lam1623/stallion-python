@@ -9,16 +9,13 @@ import signal
 import sys
 import time
 from collections.abc import AsyncIterator, Callable
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
 from pydantic import BaseModel
 
-from .ffmpeg import POPEN_KWARGS
+from .ffmpeg import popen_kwargs
 
 MAX_LINE = 8192
-
-# SVT-AV1 logs through its own channel; keep only its errors
-_CHILD_ENV = {**os.environ, "SVT_LOG": "1", "AV_LOG_FORCE_NOCOLOR": "1"}
 
 
 class Progress(BaseModel):
@@ -111,13 +108,13 @@ class FFmpegRun:
     async def run(self) -> RunResult:
         """Start ffmpeg and wait for it. ``OSError`` propagates if it cannot start."""
 
-        kwargs: dict[str, Any] = dict(POPEN_KWARGS)
+        # SVT-AV1 logs through its own channel; keep only its errors
+        kwargs = popen_kwargs(SVT_LOG="1", AV_LOG_FORCE_NOCOLOR="1")
         self._proc = await asyncio.create_subprocess_exec(
             *self.argv,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=_CHILD_ENV,
             **kwargs,
         )
         self._started_at = time.monotonic()
