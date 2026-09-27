@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
 # ---- 1. Web UI -----------------------------------------------------------------
-FROM node:22-alpine AS ui
+# The UI and the wheel are the same for every platform: build them natively, not under emulation
+FROM --platform=$BUILDPLATFORM node:22-alpine AS ui
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -10,7 +11,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---- 2. Python wheel with the UI embedded ----------------------------------------
-FROM python:3.12-slim AS wheel
+FROM --platform=$BUILDPLATFORM python:3.12-slim AS wheel
 WORKDIR /src
 RUN pip install --no-cache-dir build
 COPY pyproject.toml README.md ./
