@@ -44,9 +44,20 @@ Download the package for your distribution from the [releases page](https://gith
 
 Stallion then appears in your applications menu, and `stallion` starts it from a terminal (`stallion convert` and the other commands below work too). Fedora and openSUSE build their FFmpeg without the H.264 and HEVC software encoders (x264 and x265); the full FFmpeg from [RPM Fusion](https://rpmfusion.org/) or [Packman](https://en.opensuse.org/Additional_package_repositories#Packman) adds them. Formats your FFmpeg cannot encode stay greyed out, with the missing encoder named.
 
-To build the packages yourself: `make packages` (needs Docker) writes them to `dist/linux/`. Before every release, each package is installed and tried on fresh containers of the distributions above ([`packages.yml`](.github/workflows/packages.yml)); pushing a `v4.0.0`-style tag, or publishing a GitHub release for one, attaches the packages to that release.
+Before a release is published, each package is installed and tried on fresh containers of the distributions above (see [Releases](#releases)). To build them yourself: `make packages` (needs Docker) writes them to `dist/linux/`.
 
 ### Docker or a home server
+
+The ready-made image runs on amd64 and arm64 machines, such as a Raspberry Pi 4 or 5 or most NAS boxes:
+
+```bash
+docker run -d --name stallion --restart unless-stopped -p 8000:8000 \
+  -e STALLION_TOKEN=change-me -v /path/to/videos:/media \
+  ghcr.io/lam1623/stallion-python:latest
+# open http://localhost:8000/auth?token=change-me
+```
+
+Or build it from a checkout with Compose:
 
 ```bash
 cp .env.example .env        # set STALLION_TOKEN and MEDIA_DIR
@@ -162,6 +173,17 @@ frontend/          React 19 + TypeScript + Tailwind CSS 4 + Radix UI (built into
 packaging/linux/   .deb, .rpm, Arch and portable packages (PyInstaller + nfpm)
 legacy/            the original GTK + mencoder application, kept as it was
 ```
+
+## Releases
+
+A release is one version bump: set `__version__` in `stallion/__init__.py` and add a `<release>` entry for it to `packaging/linux/io.github.lam1623.stallion.metainfo.xml` (a test checks both). Once that reaches `master`, the [Packages and releases](.github/workflows/packages.yml) workflow:
+
+1. builds the .deb, .rpm, Arch and portable packages;
+2. installs and tries each one on fresh Ubuntu 24.04, Ubuntu 22.04, Debian 12, Fedora 42, openSUSE Tumbleweed and Arch containers;
+3. publishes the `v<version>` release with every package, their checksums and install instructions;
+4. pushes `ghcr.io/lam1623/stallion-python:<version>` and `:latest` for amd64 and arm64.
+
+Pushes that keep the version build and test the packages too, and leave them in the workflow run's artifacts.
 
 ## Credits and license
 

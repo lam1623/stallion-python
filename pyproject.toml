@@ -4,7 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "stallion"
-version = "4.0.0"
+# Single source: __version__ in stallion/__init__.py (see "Releases" in the README)
+dynamic = ["version"]
 description = "Modern FFmpeg video and audio converter with a web UI that runs as a desktop app or in Docker"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -32,6 +33,9 @@ dev = ["pytest>=8,<9", "httpx>=0.27", "ruff>=0.6", "mypy>=1.11", "types-psutil"]
 
 [project.scripts]
 stallion = "stallion.cli:main"
+
+[tool.hatch.version]
+path = "stallion/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["stallion"]
