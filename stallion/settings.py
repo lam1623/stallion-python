@@ -13,6 +13,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 log = logging.getLogger(__name__)
 
+# Bounds of the resizable options panel, in pixels (the UI also clamps to the window)
+MIN_SHEET_HEIGHT = 200
+MIN_DRAWER_WIDTH = 340
+MAX_PANEL_SIZE = 4000
+
 
 class Settings(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -30,6 +35,15 @@ class Settings(BaseModel):
     language: Literal["auto", "es", "en"] = "auto"
     # Encode on the GPU when this machine has a working GPU encoder for the format
     gpu_encoding: bool = True
+    # Queue layout: a dense table (the default) or full-width cards
+    queue_layout: Literal["table", "cards"] = "table"
+    # Window layout, kept here because the desktop app gets a new origin (hence empty
+    # browser storage) on every launch
+    inspector_pinned: bool = False
+    sidebar_collapsed: bool = False
+    # Size of the options panel in pixels (None: the default size)
+    sheet_height: int | None = Field(None, ge=MIN_SHEET_HEIGHT, le=MAX_PANEL_SIZE)
+    drawer_width: int | None = Field(None, ge=MIN_DRAWER_WIDTH, le=MAX_PANEL_SIZE)
 
 
 class SettingsPatch(BaseModel):
@@ -48,6 +62,11 @@ class SettingsPatch(BaseModel):
     theme: Literal["system", "dark", "light"] | None = None
     language: Literal["auto", "es", "en"] | None = None
     gpu_encoding: bool | None = None
+    queue_layout: Literal["table", "cards"] | None = None
+    inspector_pinned: bool | None = None
+    sidebar_collapsed: bool | None = None
+    sheet_height: int | None = Field(None, ge=MIN_SHEET_HEIGHT, le=MAX_PANEL_SIZE)
+    drawer_width: int | None = Field(None, ge=MIN_DRAWER_WIDTH, le=MAX_PANEL_SIZE)
 
 
 class SettingsStore:

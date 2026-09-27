@@ -48,3 +48,27 @@ def test_convert_success(media_dir: Path, tmp_path: Path) -> None:
     args = ["convert", str(media_dir / "hd.mp4"), "-p", "mp4-h264", "--max-height", "360", "--speed", "fast"]
     assert main([*args, "-o", str(tmp_path), "--data-dir", str(tmp_path / "data")]) == 0
     assert (tmp_path / "hd.mp4").stat().st_size > 0
+
+
+@requires_ffmpeg
+def test_convert_to_several_formats(
+    media_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = ["convert", str(media_dir / "clip.mp4"), "-p", "mp4-h264,mp3", "-p", "mp4-h264", "-p", "opus"]
+    code = main(
+        [
+            *args,
+            "--max-height",
+            "360",
+            "--speed",
+            "fast",
+            "-o",
+            str(tmp_path),
+            "--data-dir",
+            str(tmp_path / "d"),
+        ]
+    )
+    assert code == 0, capsys.readouterr().err
+    # Repeated ids count once; every format gets the options given on the command line
+    assert sorted(p.name for p in tmp_path.iterdir() if p.is_file()) == ["clip.mp3", "clip.mp4", "clip.opus"]
+    assert "3 completed" in capsys.readouterr().out

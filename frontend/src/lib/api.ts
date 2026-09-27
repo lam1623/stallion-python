@@ -94,6 +94,12 @@ export const api = {
       options,
     }),
   removeJobs: (ids: string[]) => request<{ removed: string[] }>("POST", "/api/jobs/remove", { ids }),
+  addFormats: (ids: string[], presetId: string) =>
+    request<{ jobs: Job[]; errors: { id: string; name: string; code: string; message: string }[] }>(
+      "POST",
+      "/api/jobs/formats",
+      { ids, preset_id: presetId },
+    ),
   jobAction: (id: string, action: "pause" | "resume" | "cancel" | "retry") =>
     request<Job>("POST", `/api/jobs/${id}/${action}`),
   jobLog: (id: string) => request<{ log: string[]; error: string | null; command: string }>("GET", `/api/jobs/${id}/log`),

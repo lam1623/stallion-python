@@ -1,8 +1,10 @@
 import { Lock, Pin, PinOff, X } from "lucide-react";
 import { Tabs } from "radix-ui";
-import { type ReactNode, useRef } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { saveSettings } from "@/lib/actions";
 import { dirname } from "@/lib/format";
+import { useWindowSize } from "@/lib/hooks";
 import { type TranslationKey, useT } from "@/lib/i18n";
 import { useStore } from "@/lib/store";
 import type { Job } from "@/lib/types";
@@ -11,10 +13,15 @@ import { Thumbnail } from "../queue/JobRow";
 import { Button } from "../ui/button";
 import { StatusBadge } from "../ui/misc";
 import { Tip } from "../ui/overlay";
+import { ResizeHandle } from "../ui/resize";
 import { InfoPanel } from "./InfoPanel";
 import { LogPanel } from "./LogPanel";
 import { OutputPanel } from "./OutputPanel";
 import { TracksPanel } from "./TracksPanel";
+
+// Size limits of the resizable panel (the server enforces the same minimums)
+const SHEET_MIN = 200;
+const DRAWER_MIN = 340;
 
 const TABS: { value: string; label: TranslationKey }[] = [
   { value: "output", label: "insp.tab.output" },
@@ -92,30 +99,35 @@ function TabList({ multi, className }: { multi: boolean; className?: string }) {
   );
 }
 
-/** Tab bodies; they lay out in columns when the panel is wide (the bottom sheet). */
+const TAB_BODY = "min-h-0 flex-1 overflow-y-auto p-5 outline-none";
+
+/**
+ * Tab bodies; they lay out in columns when the panel is wide (the bottom sheet). The active tab
+ * scrolls on its own, and the wide output tab scrolls its formats and its settings separately.
+ */
 function TabBodies({ jobs, locked, current }: { jobs: Job[]; locked: boolean; current: string }) {
   const t = useT();
   const multi = jobs.length > 1;
   return (
-    <div className="@container min-h-0 flex-1 overflow-y-auto">
+    <div className="@container flex min-h-0 flex-1 flex-col">
       {locked && current !== "info" && current !== "log" && (
-        <div className="flex items-center gap-2 border-b border-border bg-elevated/50 px-5 py-2 text-xs text-muted">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-elevated/50 px-5 py-2 text-xs text-muted">
           <Lock className="size-3.5 shrink-0" />
           {t("insp.locked")}
         </div>
       )}
-      <Tabs.Content value="output" className="p-5 outline-none">
+      <Tabs.Content value="output" className="min-h-0 flex-1 overflow-y-auto outline-none @3xl:overflow-hidden">
         <OutputPanel jobs={jobs} locked={locked} />
       </Tabs.Content>
       {!multi && (
         <>
-          <Tabs.Content value="tracks" className="p-5 outline-none">
+          <Tabs.Content value="tracks" className={TAB_BODY}>
             <TracksPanel job={jobs[0]} locked={locked} />
           </Tabs.Content>
-          <Tabs.Content value="info" className="p-5 outline-none">
+          <Tabs.Content value="info" className={TAB_BODY}>
             <InfoPanel job={jobs[0]} />
           </Tabs.Content>
-          <Tabs.Content value="log" className="p-5 outline-none">
+          <Tabs.Content value="log" className={TAB_BODY}>
             <LogPanel job={jobs[0]} />
           </Tabs.Content>
         </>
@@ -144,8 +156,24 @@ function InspectorTabs({ jobs, children }: { jobs: Job[]; children: (current: st
 export function InspectorDrawer({ docked }: { docked: boolean }) {
   const t = useT();
   const { jobs, open } = useInspectorJobs();
-  const setPinned = useStore((s) => s.setPinned);
+  const saved = useStore((s) => s.settings?.drawer_width ?? null);
+  const viewport = useWindowSize("width");
+  const [live, setLive] = useState<number | null>(null);
   const multi = jobs.length > 1;
+  // Leave room for the sidebar and a usable list
+  const max = Math.max(DRAWER_MIN, Math.min(1200, viewport - 480));
+  const width = Math.min(max, Math.max(DRAWER_MIN, live ?? saved ?? (viewport >= 1280 ? 440 : 400)));
+  const handle = open && (
+    <ResizeHandle
+      edge="left"
+      value={width}
+      min={DRAWER_MIN}
+      max={max}
+      label={t("insp.resize")}
+      onResize={setLive}
+      onCommit={(drawer_width) => void saveSettings({ drawer_width })}
+    />
+  );
 
   // Always mounted (empty until the first pick) so opening animates every time
   const body = jobs.length > 0 && (
@@ -162,7 +190,7 @@ export function InspectorDrawer({ docked }: { docked: boolean }) {
                   size="icon"
                   aria-label={docked ? t("insp.unpin") : t("insp.pin")}
                   aria-pressed={docked}
-                  onClick={() => setPinned(!docked)}
+                  onClick={() => void saveSettings({ inspector_pinned: !docked })}
                   className={cn(docked && "bg-accent-soft text-accent hover:bg-accent-soft hover:text-accent")}
                 >
                   {docked ? <PinOff /> : <Pin />}
@@ -184,12 +212,17 @@ export function InspectorDrawer({ docked }: { docked: boolean }) {
         aria-label={t("insp.label")}
         data-inspector
         inert={!open}
+        style={{ width: open ? width : 0 }}
         className={cn(
-          "flex shrink-0 flex-col overflow-hidden border-border bg-panel transition-[width] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-          open ? "w-[400px] border-l xl:w-[440px]" : "w-0",
+          "relative flex shrink-0 flex-col overflow-hidden border-border bg-panel transition-[width] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+          open && "border-l",
+          live !== null && "transition-none",
         )}
       >
-        <div className="flex h-full w-[400px] flex-col xl:w-[440px]">{body}</div>
+        {handle}
+        <div className="flex h-full flex-col" style={{ width }}>
+          {body}
+        </div>
       </aside>
     );
   }
@@ -198,11 +231,13 @@ export function InspectorDrawer({ docked }: { docked: boolean }) {
       aria-label={t("insp.label")}
       data-inspector
       inert={!open}
+      style={{ width }}
       className={cn(
-        "absolute inset-y-0 right-0 z-20 flex w-full max-w-[440px] flex-col border-l border-border-strong bg-panel transition-[transform,box-shadow,visibility] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+        "absolute inset-y-0 right-0 z-20 flex max-w-full flex-col border-l border-border-strong bg-panel transition-[transform,box-shadow,visibility] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
         open ? "translate-x-0 shadow-[-24px_0_48px_-24px_rgb(16_18_27/0.3)]" : "invisible translate-x-[105%]",
       )}
     >
+      {handle}
       {body}
     </aside>
   );
@@ -212,20 +247,39 @@ export function InspectorDrawer({ docked }: { docked: boolean }) {
 export function InspectorSheet() {
   const t = useT();
   const { jobs, open } = useInspectorJobs();
+  const saved = useStore((s) => s.settings?.sheet_height ?? null);
+  const viewport = useWindowSize("height");
+  const [live, setLive] = useState<number | null>(null);
   const multi = jobs.length > 1;
+  // Keep the header, the toolbar and a few rows of the table in view
+  const max = Math.max(SHEET_MIN, viewport - 260);
+  const height = Math.min(max, Math.max(SHEET_MIN, live ?? saved ?? Math.round(Math.min(400, viewport * 0.48))));
 
   return (
     <section
       aria-label={t("insp.label")}
       data-inspector
       inert={!open}
+      style={{ height: open ? height : 0 }}
       className={cn(
-        "shrink-0 overflow-hidden border-border-strong bg-panel transition-[height] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
-        open ? "h-[min(400px,48vh)] border-t shadow-[0_-18px_40px_-28px_rgb(16_18_27/0.35)]" : "h-0",
+        "relative shrink-0 overflow-hidden border-border-strong bg-panel transition-[height] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+        open && "border-t shadow-[0_-18px_40px_-28px_rgb(16_18_27/0.35)]",
+        live !== null && "transition-none",
       )}
     >
+      {open && (
+        <ResizeHandle
+          edge="top"
+          value={height}
+          min={SHEET_MIN}
+          max={max}
+          label={t("insp.resize")}
+          onResize={setLive}
+          onCommit={(sheet_height) => void saveSettings({ sheet_height })}
+        />
+      )}
       {jobs.length > 0 && (
-        <div className="flex h-[min(400px,48vh)] flex-col">
+        <div className="flex flex-col" style={{ height }}>
           <InspectorTabs jobs={jobs}>
             {(current, locked) => (
               <>

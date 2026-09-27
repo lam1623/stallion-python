@@ -69,7 +69,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     convert = sub.add_parser("convert", help="convert files from the terminal")
     convert.add_argument("inputs", nargs="+", type=Path)
-    convert.add_argument("-p", "--preset", default="mp4-h264", help="format id (see `stallion presets`)")
+    convert.add_argument(
+        "-p",
+        "--preset",
+        action="append",
+        help="format id (see `stallion presets`); repeat it or use commas to get several formats",
+    )
     convert.add_argument("-o", "--out-dir", type=Path, help="output folder (default: next to each input)")
     convert.add_argument(
         "-q",
@@ -199,8 +204,16 @@ async def _convert(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     catalog = _catalog(ffmpeg, args.data_dir)
-    if args.preset not in catalog:
-        print(f"error: unknown preset '{args.preset}' (see `stallion presets`)", file=sys.stderr)
+    formats = list(
+        dict.fromkeys(p.strip() for value in args.preset or ["mp4-h264"] for p in value.split(","))
+    )
+    formats = [p for p in formats if p]
+    for preset_id in formats:
+        if preset_id not in catalog:
+            print(f"error: unknown preset '{preset_id}' (see `stallion presets`)", file=sys.stderr)
+            return 2
+    if not formats:
+        print("error: no format given", file=sys.stderr)
         return 2
 
     settings = Settings(
@@ -208,7 +221,7 @@ async def _convert(args: argparse.Namespace) -> int:
         concurrency=max(1, min(args.jobs, 8)),
         overwrite=args.overwrite,
         autoload_subtitles=args.subtitles != "none",
-        default_preset=args.preset,
+        default_preset=formats[0],
     )
     manager = JobManager(
         ffmpeg=ffmpeg,
@@ -222,11 +235,13 @@ async def _convert(args: argparse.Namespace) -> int:
     )
     if args.out_dir:
         args.out_dir.mkdir(parents=True, exist_ok=True)
-    patch: dict[str, Any] = {"preset_id": args.preset, "speed": args.speed, "accel": args.accel}
+    # Applied to every format; the format itself is chosen per job
+    tweaks: dict[str, Any] = {}
     if args.quality is not None:
-        patch["quality"] = args.quality
+        tweaks["quality"] = args.quality
     if args.max_height is not None:
-        patch["max_height"] = args.max_height
+        tweaks["max_height"] = args.max_height
+    patch: dict[str, Any] = {"preset_id": formats[0], "speed": args.speed, "accel": args.accel, **tweaks}
     if args.subtitles == "none":
         patch["subtitle_mode"] = "none"
 
@@ -251,6 +266,17 @@ async def _convert(args: argparse.Namespace) -> int:
                     print(f"warn  {job.name}: {exc.message}", file=sys.stderr)
         if not jobs:
             return 1
+        for preset_id in formats[1:]:
+            extra, failures = manager.add_formats([job.id for job in jobs], preset_id)
+            for failure in failures:
+                print(f"skip  {failure['name']} → {preset_id}: {failure['message']}", file=sys.stderr)
+            errors += failures
+            for job in extra:
+                if tweaks:
+                    try:
+                        manager.update_options(job.id, tweaks)
+                    except ManagerError as exc:
+                        print(f"warn  {job.name} → {preset_id}: {exc.message}", file=sys.stderr)
         manager.start_queue()
         interactive = sys.stdout.isatty()
         while True:

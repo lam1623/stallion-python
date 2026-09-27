@@ -1,16 +1,20 @@
-import { Folder, Info } from "lucide-react";
+import { Folder, Info, Plus, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
-import { pickPaths, updateOptions } from "@/lib/actions";
+import { toast } from "sonner";
+import { useShallow } from "zustand/react/shallow";
+import { addFormats, pickPaths, removeJobs, updateOptions } from "@/lib/actions";
 import { basename, displaySize } from "@/lib/format";
 import { localized, type Translator, useLang, useT } from "@/lib/i18n";
 import { frameLabel, gpuSupport, keepsHdr, type SizePlan, sizePlan } from "@/lib/presets";
-import { useStore } from "@/lib/store";
+import { selectFormatsOf, usePreset, useStore } from "@/lib/store";
 import type { Accel, Job, JobOptions, Preset, Speed } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { PresetIcon } from "../Brand";
 import { PresetPicker } from "../PresetPicker";
 import { Button } from "../ui/button";
 import { Select, Segmented, Slider, Switch } from "../ui/controls";
-import { Badge, Field, SectionTitle } from "../ui/misc";
+import { Badge, Field, SectionTitle, StatusBadge } from "../ui/misc";
+import { Tip } from "../ui/overlay";
 
 const HEIGHTS = [2160, 1440, 1080, 720, 480, 360];
 // Below this video bitrate a size target gives visibly poor quality
@@ -287,6 +291,162 @@ function FileNameField({ job, preset, disabled }: { job: Job; preset: Preset; di
   );
 }
 
+function PresetTags({ preset }: { preset: Preset }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      <Badge>{preset.extension}</Badge>
+      {preset.tags.map((tag) => (
+        <Badge key={tag}>{tag}</Badge>
+      ))}
+    </div>
+  );
+}
+
+function AddFormatButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border-strong text-[13px] font-medium text-muted outline-none transition hover:border-accent hover:bg-accent-soft/40 hover:text-accent focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <Plus className="size-4" />
+      {label}
+    </button>
+  );
+}
+
+/** One format of the file: picks it for editing, or opens the format picker when it is the one shown. */
+function FormatItem({
+  id,
+  current,
+  formats,
+  locked,
+  onChange,
+}: {
+  id: string;
+  current: boolean;
+  formats: string[];
+  locked: boolean;
+  onChange: () => void;
+}) {
+  const t = useT();
+  const lang = useLang();
+  const job = useStore((s) => s.jobs[id]);
+  const preset = usePreset(job?.options.preset_id);
+  if (!job) return null;
+  const several = formats.length > 1;
+  const active = job.status === "running" || job.status === "paused";
+  // One format: what it is for. Several: the file each one writes, which is what tells them apart
+  const detail = several ? basename(job.output_path) : preset ? localized(preset.description, lang) : "";
+
+  const remove = async () => {
+    const at = formats.indexOf(id);
+    const neighbour = formats[at + 1] ?? formats[at - 1];
+    // Removing the format on screen keeps the panel on this file
+    if (current && neighbour) useStore.getState().setSelection([neighbour]);
+    await removeJobs([id]);
+  };
+
+  return (
+    <div
+      role="listitem"
+      className={cn(
+        "group relative flex items-center gap-3 rounded-xl border p-3 transition",
+        current
+          ? "border-accent/50 bg-accent-soft/40 shadow-[0_0_0_1px_var(--accent-soft)]"
+          : "border-border bg-surface shadow-card hover:border-border-strong",
+      )}
+    >
+      <button
+        onClick={current ? onChange : () => useStore.getState().setSelection([id])}
+        disabled={current && locked}
+        aria-current={current || undefined}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring disabled:cursor-default"
+      >
+        {preset && <PresetIcon preset={preset} />}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold text-fg">
+            {preset ? localized(preset.name, lang) : job.options.preset_id}
+          </span>
+          {/* The status shares the second line so the name keeps the width */}
+          <span className="mt-0.5 flex min-w-0 items-center gap-2">
+            <span className="truncate text-xs text-muted" title={several ? job.output_path : undefined}>
+              {detail}
+            </span>
+            {job.status !== "queued" && <StatusBadge status={job.status} className="py-0 text-[10px]" />}
+          </span>
+        </span>
+      </button>
+      {current && !locked && <span className="shrink-0 text-xs font-semibold text-accent">{t("opt.change")}</span>}
+      {several && !active && (
+        <Tip content={t("opt.removeFormat")}>
+          <button
+            aria-label={t("opt.removeFormat")}
+            onClick={() => void remove()}
+            className="relative z-10 -my-1 -mr-1 grid size-7 shrink-0 place-items-center rounded-md text-subtle opacity-0 outline-none transition hover:bg-elevated hover:text-danger focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+          >
+            <X className="size-4" />
+          </button>
+        </Tip>
+      )}
+    </div>
+  );
+}
+
+/** Every format this file is converted to (one job each): edit any of them, add more or drop one. */
+function FormatList({
+  job,
+  preset,
+  locked,
+  onChange,
+}: {
+  job: Job;
+  preset: Preset;
+  locked: boolean;
+  onChange: () => void;
+}) {
+  const t = useT();
+  const formats = useStore(useShallow(selectFormatsOf(job)));
+  const [adding, setAdding] = useState(false);
+  const several = formats.length > 1;
+
+  const add = async (next: Preset) => {
+    setAdding(false);
+    const [created] = await addFormats([job.id], next);
+    // Straight to the new format, ready to adjust
+    if (created) useStore.getState().setSelection([created.id]);
+  };
+
+  return (
+    <Field label={several ? `${t("opt.formats")} · ${formats.length}` : t("opt.format")}>
+      <div role="list" aria-label={t("opt.formats")} className="space-y-2">
+        {formats.map((id) => (
+          <FormatItem
+            key={id}
+            id={id}
+            current={id === job.id}
+            formats={formats}
+            locked={locked}
+            onChange={onChange}
+          />
+        ))}
+      </div>
+      <PresetTags preset={preset} />
+      <Tip content={t("opt.addFormatHint")}>
+        <div>
+          <AddFormatButton label={t("opt.addFormat")} onClick={() => setAdding(true)} />
+        </div>
+      </Tip>
+      <PresetPicker
+        open={adding}
+        onOpenChange={setAdding}
+        title={t("picker.addTitle")}
+        onSelect={(next) => void add(next)}
+        audioOnly={!job.media.video}
+      />
+    </Field>
+  );
+}
+
 export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) {
   const t = useT();
   const lang = useLang();
@@ -298,6 +458,7 @@ export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) 
   const canTonemap = useStore((s) => s.system?.ffmpeg.can_tonemap ?? false);
   const preset = presets.find((p) => p.id === job.options.preset_id);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [addingToAll, setAddingToAll] = useState(false);
   if (!preset) return null;
 
   const options = job.options;
@@ -321,6 +482,14 @@ export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) 
   const choosePreset = (next: Preset) => {
     setPickerOpen(false);
     for (const item of jobs) void updateOptions([item.id], presetPatch(item, next));
+  };
+  const files = new Set(jobs.map((item) => item.input_path)).size;
+  const addToAll = async (next: Preset) => {
+    setAddingToAll(false);
+    const created = await addFormats(ids, next);
+    if (created.length) {
+      toast.success(t("toast.formatAdded", { format: localized(next.name, lang), count: created.length }));
+    }
   };
 
   let resolution: ReactNode = null;
@@ -368,30 +537,31 @@ export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) 
 
   const outputDir = options.output_dir ?? settings?.output_dir ?? null;
 
-  // One column in the side panel; two or three when the bottom sheet gives it the width
+  // Side panel: one column. Bottom sheet: the formats on the left and the settings of the one
+  // picked on the right, each scrolling on its own
   return (
-    <div className="grid grid-cols-1 items-start gap-x-10 gap-y-6 @3xl:grid-cols-2 @5xl:grid-cols-3">
-      <div className="space-y-6">
-        <Field label={t("opt.format")}>
-          <button
-            onClick={() => setPickerOpen(true)}
-            disabled={locked}
-            className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface p-3 text-left shadow-card outline-none transition hover:border-border-strong focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-          >
-            <PresetIcon preset={preset} />
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-semibold text-fg">{localized(preset.name, lang)}</div>
-              <div className="truncate text-xs text-muted">{localized(preset.description, lang)}</div>
-            </div>
-            <span className="text-xs font-semibold text-accent">{t("opt.change")}</span>
-          </button>
-          <div className="flex flex-wrap gap-1">
-            <Badge>{preset.extension}</Badge>
-            {preset.tags.map((tag) => (
-              <Badge key={tag}>{tag}</Badge>
-            ))}
-          </div>
-        </Field>
+    <div className="@3xl:grid @3xl:h-full @3xl:grid-cols-[minmax(18rem,26rem)_minmax(0,1fr)] @3xl:grid-rows-[minmax(0,1fr)]">
+      <div className="space-y-6 p-5 pb-1 @3xl:overflow-y-auto @3xl:border-r @3xl:border-border @3xl:pb-5">
+        {multi ? (
+          <Field label={t("opt.format")}>
+            <button
+              onClick={() => setPickerOpen(true)}
+              disabled={locked}
+              className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface p-3 text-left shadow-card outline-none transition hover:border-border-strong focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+            >
+              <PresetIcon preset={preset} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold text-fg">{localized(preset.name, lang)}</div>
+                <div className="truncate text-xs text-muted">{localized(preset.description, lang)}</div>
+              </div>
+              <span className="text-xs font-semibold text-accent">{t("opt.change")}</span>
+            </button>
+            <PresetTags preset={preset} />
+            <AddFormatButton label={t("opt.addFormatMany", { count: files })} onClick={() => setAddingToAll(true)} />
+          </Field>
+        ) : (
+          <FormatList job={job} preset={preset} locked={locked} onChange={() => setPickerOpen(true)} />
+        )}
 
         {preset.remux && <Note>{t("opt.remuxNote")}</Note>}
         {preset.category === "editing" && <Note>{t("opt.editingNote")}</Note>}
@@ -399,103 +569,119 @@ export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) 
         {hdrNote && <Note>{hdrNote}</Note>}
       </div>
 
-      {(showQuality || showSize || spec?.speed_family || showResolution) && (
-        <div className="space-y-5">
-          <SectionTitle>{t("info.video")}</SectionTitle>
-          {showQuality && (
-            <QualityField preset={preset} options={options} disabled={locked} onCommit={(q) => update({ quality: q })} />
-          )}
-          {showSize && (
-            <SizeField
-              preset={preset}
-              value={targetMb}
-              plan={plan}
-              resolution={outputShortSide}
-              disabled={locked}
-              onCommit={(q) => update({ quality: q })}
-            />
-          )}
-          {spec?.speed_family && video && (
-            <Field label={t("opt.speed")} hint={t("opt.speedHint")}>
-              <Segmented<Speed>
-                className="w-full"
-                value={options.speed}
-                disabled={locked}
-                onValueChange={(speed) => update({ speed })}
-                options={[
-                  { value: "fast", label: t("opt.speed.fast") },
-                  { value: "balanced", label: t("opt.speed.balanced") },
-                  { value: "quality", label: t("opt.speed.quality") },
-                ]}
-              />
-            </Field>
-          )}
-          {encodesVideo && (
-            <EngineField jobs={jobs} preset={preset} disabled={locked} onChange={(accel) => update({ accel })} />
-          )}
-          {resolution}
-        </div>
-      )}
-
-      <div className="space-y-6">
-        {preset.audio && hasAudio && !preset.remux && preset.audio.codec !== "copy" && (
-          <div className="space-y-5">
-            <SectionTitle>{t("opt.audio")}</SectionTitle>
-            {preset.audio.bitrate_choices.length > 0 && (
-              <Field label={t("opt.audioBitrate")}>
-                <Select
-                  aria-label={t("opt.audioBitrate")}
-                  value={String(options.audio_bitrate_kbps ?? preset.audio.bitrate_kbps)}
+      <div className="p-5 @3xl:overflow-y-auto">
+        <div className="grid grid-cols-1 items-start gap-x-10 gap-y-6 @5xl:grid-cols-2">
+          {(showQuality || showSize || spec?.speed_family || showResolution) && (
+            <div className="space-y-5">
+              <SectionTitle>{t("info.video")}</SectionTitle>
+              {showQuality && (
+                <QualityField
+                  preset={preset}
+                  options={options}
                   disabled={locked}
-                  options={preset.audio.bitrate_choices.map((kbps) => ({ value: String(kbps), label: `${kbps} kb/s` }))}
-                  onValueChange={(value) => update({ audio_bitrate_kbps: Number(value) })}
+                  onCommit={(q) => update({ quality: q })}
                 />
-              </Field>
-            )}
-            <VolumeField value={options.volume_db} disabled={locked} onCommit={(volume_db) => update({ volume_db })} />
-            <label className="flex items-center justify-between gap-4">
-              <span>
-                <span className="block text-[13px] font-medium text-fg">{t("opt.normalize")}</span>
-                <span className="block text-xs text-subtle">{t("opt.normalizeHint")}</span>
-              </span>
-              <Switch
-                checked={options.normalize_audio}
-                disabled={locked}
-                onCheckedChange={(normalize_audio) => update({ normalize_audio })}
-              />
-            </label>
-          </div>
-        )}
-
-        <div className="space-y-5">
-          <SectionTitle>{t("opt.destination")}</SectionTitle>
-          <div className="flex items-center gap-2 rounded-xl border border-border bg-surface p-2 pl-3 shadow-card">
-            <Folder className="size-4 shrink-0 text-subtle" />
-            <span className="min-w-0 flex-1 truncate text-[13px] text-fg" title={outputDir ?? undefined}>
-              {outputDir ?? t("opt.nextToOriginal")}
-            </span>
-            {options.output_dir && (
-              <Button variant="ghost" size="xs" disabled={locked} onClick={() => update({ output_dir: null })}>
-                {t("opt.reset")}
-              </Button>
-            )}
-            <Button
-              size="xs"
-              disabled={locked}
-              onClick={async () => {
-                const [dir] = await pickPaths("folder");
-                if (dir) update({ output_dir: dir });
-              }}
-            >
-              {t("opt.change")}
-            </Button>
-          </div>
-          {!multi && <FileNameField job={job} preset={preset} disabled={locked} />}
-          {!multi && (
-            <p className="break-all text-xs text-subtle" title={job.output_path}>
-              {t("opt.outputPath", { path: job.output_path })}
-            </p>
+              )}
+              {showSize && (
+                <SizeField
+                  preset={preset}
+                  value={targetMb}
+                  plan={plan}
+                  resolution={outputShortSide}
+                  disabled={locked}
+                  onCommit={(q) => update({ quality: q })}
+                />
+              )}
+              {spec?.speed_family && video && (
+                <Field label={t("opt.speed")} hint={t("opt.speedHint")}>
+                  <Segmented<Speed>
+                    className="w-full"
+                    value={options.speed}
+                    disabled={locked}
+                    onValueChange={(speed) => update({ speed })}
+                    options={[
+                      { value: "fast", label: t("opt.speed.fast") },
+                      { value: "balanced", label: t("opt.speed.balanced") },
+                      { value: "quality", label: t("opt.speed.quality") },
+                    ]}
+                  />
+                </Field>
+              )}
+              {encodesVideo && (
+                <EngineField jobs={jobs} preset={preset} disabled={locked} onChange={(accel) => update({ accel })} />
+              )}
+              {resolution}
+            </div>
           )}
+
+          <div className="space-y-6">
+            {preset.audio && hasAudio && !preset.remux && preset.audio.codec !== "copy" && (
+              <div className="space-y-5">
+                <SectionTitle>{t("opt.audio")}</SectionTitle>
+                {preset.audio.bitrate_choices.length > 0 && (
+                  <Field label={t("opt.audioBitrate")}>
+                    <Select
+                      aria-label={t("opt.audioBitrate")}
+                      value={String(options.audio_bitrate_kbps ?? preset.audio.bitrate_kbps)}
+                      disabled={locked}
+                      options={preset.audio.bitrate_choices.map((kbps) => ({
+                        value: String(kbps),
+                        label: `${kbps} kb/s`,
+                      }))}
+                      onValueChange={(value) => update({ audio_bitrate_kbps: Number(value) })}
+                    />
+                  </Field>
+                )}
+                <VolumeField
+                  value={options.volume_db}
+                  disabled={locked}
+                  onCommit={(volume_db) => update({ volume_db })}
+                />
+                <label className="flex items-center justify-between gap-4">
+                  <span>
+                    <span className="block text-[13px] font-medium text-fg">{t("opt.normalize")}</span>
+                    <span className="block text-xs text-subtle">{t("opt.normalizeHint")}</span>
+                  </span>
+                  <Switch
+                    checked={options.normalize_audio}
+                    disabled={locked}
+                    onCheckedChange={(normalize_audio) => update({ normalize_audio })}
+                  />
+                </label>
+              </div>
+            )}
+
+            <div className="space-y-5">
+              <SectionTitle>{t("opt.destination")}</SectionTitle>
+              <div className="flex items-center gap-2 rounded-xl border border-border bg-surface p-2 pl-3 shadow-card">
+                <Folder className="size-4 shrink-0 text-subtle" />
+                <span className="min-w-0 flex-1 truncate text-[13px] text-fg" title={outputDir ?? undefined}>
+                  {outputDir ?? t("opt.nextToOriginal")}
+                </span>
+                {options.output_dir && (
+                  <Button variant="ghost" size="xs" disabled={locked} onClick={() => update({ output_dir: null })}>
+                    {t("opt.reset")}
+                  </Button>
+                )}
+                <Button
+                  size="xs"
+                  disabled={locked}
+                  onClick={async () => {
+                    const [dir] = await pickPaths("folder");
+                    if (dir) update({ output_dir: dir });
+                  }}
+                >
+                  {t("opt.change")}
+                </Button>
+              </div>
+              {!multi && <FileNameField job={job} preset={preset} disabled={locked} />}
+              {!multi && (
+                <p className="break-all text-xs text-subtle" title={job.output_path}>
+                  {t("opt.outputPath", { path: job.output_path })}
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -504,6 +690,13 @@ export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) 
         onOpenChange={setPickerOpen}
         value={preset.id}
         onSelect={choosePreset}
+        audioOnly={!video}
+      />
+      <PresetPicker
+        open={addingToAll}
+        onOpenChange={setAddingToAll}
+        title={t("picker.addTitle")}
+        onSelect={(next) => void addToAll(next)}
         audioOnly={!video}
       />
     </div>

@@ -21,7 +21,8 @@ Modern video and audio converter powered by FFmpeg. The same web-based UI runs a
 - **Per-file control**: quality (CRF, bitrate or 0–100), encoding speed, resolution (never upscales, handles portrait and anamorphic video), audio bitrate, volume and EBU R128 loudness normalization.
 - **Audio tracks**: pick the language you want; remuxing keeps every track.
 - **Subtitles**: burn them in or embed them as a track, from embedded tracks (text or PGS/VobSub images) or external `.srt/.ass/.ssa/.vtt` files. A matching `.srt` next to the video is picked up automatically, Windows-1252 files are detected, and a style editor shows a live preview.
-- **Queue**: full-width cards or a dense table, status filters and search, parallel conversions, pause/resume/cancel/retry, live progress with speed and ETA, thumbnails, batch editing, and the exact `ffmpeg` command for every job. Options open only for the file you pick, either floating over the list or pinned beside it.
+- **Several formats per file**: convert one video to MP4, WebM and MP3 at once, for example. Each format is its own job with its own settings. Outputs that would share a name are named after their format, e.g. `clip (HEVC).mp4`.
+- **Queue**: a dense table (the default) or full-width cards, status filters and search, parallel conversions, pause/resume/cancel/retry, live progress with speed and ETA, thumbnails, batch editing, and the exact `ffmpeg` command for every job. Options open only for the file you pick: under the table, or beside the cards (floating or pinned). You can resize the panel, and its size and the view are remembered.
 - **Spanish and English UI**, light theme by default with an optional dark mode, keyboard shortcuts.
 - **Headless CLI** for scripts and servers.
 
@@ -68,6 +69,7 @@ stallion convert clip.mov -p share-size -q 25                   # fit in 25 MB
 stallion convert trip.mp4 -p social-vertical                    # 1080×1920 for Reels/TikTok
 stallion convert hdr.mov -p mp4-hevc-10bit                      # keep HDR
 stallion convert *.mov -p mp4-h265 --accel gpu                  # encode on the GPU (cpu/auto)
+stallion convert talk.mkv -p mp4-h264 -p webm-av1,mp3           # several formats per file
 stallion serve --host 0.0.0.0 --media-root /srv/videos
 ```
 

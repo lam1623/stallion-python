@@ -7,6 +7,7 @@ import contextlib
 import functools
 import logging
 import shlex
+import shutil
 import time
 import uuid
 from collections.abc import Coroutine, Iterable
@@ -24,6 +25,7 @@ from .engine.command import (
     display_command,
     find_external_subtitles,
     plan_output_path,
+    sanitize_name,
     unique_path,
     validate_options,
 )
@@ -481,6 +483,132 @@ class JobManager:
         job.output_path = str(self._planned_output(job))
         self._plan_engine(job)
         return job
+
+    # ------------------------------------------------------------------ more formats of a file
+
+    def add_formats(self, job_ids: Iterable[str], preset_id: str) -> tuple[list[Job], list[dict[str, str]]]:
+        """Convert the files of these jobs to one more format each (once per file).
+
+        Every format of a file is its own job, placed right after the file's other formats.
+        """
+
+        self._require_ffmpeg()
+        preset = self._preset(preset_id)
+        created: list[Job] = []
+        errors: list[dict[str, str]] = []
+        files: set[str] = set()
+        for job_id in job_ids:
+            source = self.jobs.get(job_id)
+            if source is None:
+                errors.append(
+                    {"id": job_id, "name": job_id, "code": "job_not_found", "message": "Job not found"}
+                )
+                continue
+            if source.input_path in files:
+                continue
+            files.add(source.input_path)
+            try:
+                job = self._new_format(source, preset)
+            except ManagerError as exc:
+                errors.append({"id": job_id, "name": source.name, "code": exc.code, "message": exc.message})
+                continue
+            self._insert_after_file(job)
+            self._copy_thumbnail(source, job)
+            created.append(job)
+
+        if created:
+            # A snapshot, not job events: the new jobs sit next to their file, not at the end
+            self._publish(self.snapshot())
+            for job in created:
+                if not job.thumbnail:
+                    self._spawn(self._make_thumbnail(job))
+            if self.settings.current.auto_start and not self.queue_running:
+                self.start_queue()
+            else:
+                self._schedule()
+        return created, errors
+
+    def _new_format(self, source: Job, preset: Preset) -> Job:
+        try:
+            options = self._normalize_options(self._carried_options(source, preset), source.media)
+        except (OptionsError, PathError) as exc:
+            raise ManagerError(exc.code, exc.message, 422) from exc
+        job = Job(
+            id=uuid.uuid4().hex[:12],
+            name=source.name,
+            input_path=source.input_path,
+            size_bytes=source.size_bytes,
+            media=source.media,
+            options=options,
+            output_path="",
+            external_subtitles=list(source.external_subtitles),
+            created_at=time.time(),
+        )
+        job.output_path = str(self._planned_output(job))
+        taken = {Path(other.output_path) for other in self.jobs.values()}
+        planned = Path(job.output_path)
+        if planned in taken:
+            # Same folder and extension as another output: name it after the format ("clip (HEVC).mp4")
+            label = sanitize_name(preset.tags[0]) if preset.tags else preset.id
+            candidate, counter = planned.with_name(f"{planned.stem} ({label}){planned.suffix}"), 2
+            while candidate in taken:
+                candidate = planned.with_name(f"{planned.stem} ({label} {counter}){planned.suffix}")
+                counter += 1
+            job.options = job.options.model_copy(update={"output_name": candidate.stem})
+            job.output_path = str(self._planned_output(job))
+        self._plan_engine(job)
+        return job
+
+    @staticmethod
+    def _carried_options(source: Job, preset: Preset) -> JobOptions:
+        """The source job's choices for another format, as when switching format in the UI:
+        per-format values go back to the preset defaults, subtitles and audio stay valid."""
+
+        media, options = source.media, source.options
+        updates: dict[str, Any] = {
+            "preset_id": preset.id,
+            "quality": None,
+            "audio_bitrate_kbps": None,
+            "max_height": None,
+            "output_name": None,
+        }
+        can_burn = preset.can_burn_subtitles and media.video is not None
+        if options.subtitle_mode == "soft":
+            track = (
+                media.subtitles[options.subtitle_track]
+                if options.subtitle_track is not None and options.subtitle_track < len(media.subtitles)
+                else None
+            )
+            soft_ok = preset.soft_subtitles is not None and (
+                track is None or not track.bitmap or preset.soft_bitmap_subtitles
+            )
+            if not soft_ok:
+                updates["subtitle_mode"] = "burn" if can_burn else "none"
+        elif options.subtitle_mode == "burn" and not can_burn:
+            updates["subtitle_mode"] = "none"
+        # Copied audio cannot be filtered: volume and normalization go back to neutral
+        if preset.remux or (preset.audio is not None and preset.audio.codec == "copy"):
+            updates["volume_db"] = 0.0
+            updates["normalize_audio"] = False
+        return options.model_copy(update=updates)
+
+    def _insert_after_file(self, job: Job) -> None:
+        items = list(self.jobs.items())
+        last = max(
+            (i for i, (_, other) in enumerate(items) if other.input_path == job.input_path),
+            default=len(items) - 1,
+        )
+        items.insert(last + 1, (job.id, job))
+        self.jobs = dict(items)
+
+    def _copy_thumbnail(self, source: Job, job: Job) -> None:
+        if not source.thumbnail:
+            return
+        try:
+            shutil.copyfile(self.thumb_dir / f"{source.id}.jpg", self.thumb_dir / f"{job.id}.jpg")
+        except OSError:
+            return
+        job.thumbnail = True
 
     def update_options(self, job_id: str, patch: dict[str, Any]) -> Job:
         job = self.get(job_id)

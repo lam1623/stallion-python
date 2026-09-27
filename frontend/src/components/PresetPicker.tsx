@@ -77,12 +77,15 @@ export function PresetPicker({
   value,
   onSelect,
   audioOnly = false,
+  title,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  value: string;
+  /** The current format, if any (it gets a check mark). */
+  value?: string;
   onSelect: (preset: Preset) => void;
   audioOnly?: boolean;
+  title?: string;
 }) {
   const t = useT();
   const lang = useLang();
@@ -118,7 +121,7 @@ export function PresetPicker({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title={t("picker.title")}
+      title={title ?? t("picker.title")}
       // Fixed height: switching categories must not resize the dialog
       className="h-[min(86vh,760px)] w-[min(900px,calc(100vw-32px))]"
     >

@@ -1,8 +1,17 @@
 import { create } from "zustand";
-import { loadPrefs, type QueueLayout, savePrefs } from "./prefs";
-import type { Job, JobOptions, Preset, Progress, QueueState, Settings, SystemInfo, SystemStats } from "./types";
+import type {
+  Job,
+  JobOptions,
+  Preset,
+  Progress,
+  QueueLayout,
+  QueueState,
+  Settings,
+  SystemInfo,
+  SystemStats,
+} from "./types";
 
-export type { QueueLayout } from "./prefs";
+export type { QueueLayout } from "./types";
 export type View = "queue" | "formats" | "settings";
 /** Queue filter chips: "active" groups running and paused jobs. */
 export type QueueFilter = "all" | "active" | "queued" | "completed" | "failed" | "canceled";
@@ -46,9 +55,6 @@ interface State {
   history: Sample[];
   queueFilter: QueueFilter;
   queueQuery: string;
-  layout: QueueLayout;
-  pinned: boolean;
-  sidebarCollapsed: boolean;
 
   setBoot: (patch: Partial<Pick<State, "booted" | "authRequired" | "authenticated">>) => void;
   setData: (patch: Partial<Pick<State, "system" | "presets" | "settings" | "fonts">>) => void;
@@ -59,6 +65,7 @@ interface State {
 
   applySnapshot: (jobs: Job[], queue: QueueState) => void;
   upsertJob: (job: Job) => void;
+  insertJobs: (jobs: Job[]) => void;
   applyProgress: (items: { id: string; progress: Progress }[]) => void;
   removeJobs: (ids: string[]) => void;
   setQueue: (queue: QueueState) => void;
@@ -66,9 +73,6 @@ interface State {
   applyStats: (stats: SystemStats) => void;
   setQueueFilter: (filter: QueueFilter) => void;
   setQueueQuery: (query: string) => void;
-  setLayout: (layout: QueueLayout) => void;
-  setPinned: (pinned: boolean) => void;
-  setSidebarCollapsed: (collapsed: boolean) => void;
 
   select: (id: string, mode?: "single" | "toggle" | "range") => void;
   setSelection: (ids: string[]) => void;
@@ -95,8 +99,6 @@ export function visibleOrder(state: Pick<State, "order" | "jobs" | "queueFilter"
   });
 }
 
-const prefs = loadPrefs();
-
 export const useStore = create<State>()((set) => ({
   booted: false,
   authRequired: false,
@@ -118,9 +120,6 @@ export const useStore = create<State>()((set) => ({
   history: [],
   queueFilter: "all",
   queueQuery: "",
-  layout: prefs.layout,
-  pinned: prefs.pinned,
-  sidebarCollapsed: prefs.sidebarCollapsed,
 
   setBoot: (patch) => set(patch),
   setData: (patch) => set(patch),
@@ -143,6 +142,20 @@ export const useStore = create<State>()((set) => ({
       if (current && current.revision > job.revision) return state;
       const order = current !== undefined ? state.order : [...state.order, job.id];
       return { jobs: { ...state.jobs, [job.id]: job }, order };
+    }),
+
+  // New formats of a file sit right after the file's other formats (like on the server)
+  insertJobs: (list) =>
+    set((state) => {
+      const jobs = { ...state.jobs };
+      const order = [...state.order];
+      for (const job of list) {
+        if (jobs[job.id]) continue; // the WebSocket snapshot got here first
+        jobs[job.id] = job;
+        const last = order.findLastIndex((id) => jobs[id]?.input_path === job.input_path);
+        order.splice(last < 0 ? order.length : last + 1, 0, job.id);
+      }
+      return { jobs, order };
     }),
 
   applyProgress: (items) =>
@@ -187,18 +200,6 @@ export const useStore = create<State>()((set) => ({
       const shown = new Set(visibleOrder({ ...state, queueQuery }));
       return { queueQuery, selected: state.selected.filter((id) => shown.has(id)) };
     }),
-  setLayout: (layout) => {
-    savePrefs({ layout });
-    set({ layout });
-  },
-  setPinned: (pinned) => {
-    savePrefs({ pinned });
-    set({ pinned });
-  },
-  setSidebarCollapsed: (sidebarCollapsed) => {
-    savePrefs({ sidebarCollapsed });
-    set({ sidebarCollapsed });
-  },
 
   patchOptions: (ids, patch) =>
     set((state) => {
@@ -235,3 +236,14 @@ export const useStore = create<State>()((set) => ({
 
 export const usePreset = (id: string | undefined) =>
   useStore((s) => (id ? s.presets.find((p) => p.id === id) : undefined));
+
+// The window layout lives in the settings, which the desktop app keeps across launches
+export const selectLayout = (s: State): QueueLayout => s.settings?.queue_layout ?? "table";
+export const selectPinned = (s: State): boolean => s.settings?.inspector_pinned ?? false;
+export const selectSidebarCollapsed = (s: State): boolean => s.settings?.sidebar_collapsed ?? false;
+
+/** Every format of a job's file (jobs sharing its input), in queue order. */
+export const selectFormatsOf =
+  (job: Job | undefined) =>
+  (s: State): string[] =>
+    job ? s.order.filter((id) => s.jobs[id]?.input_path === job.input_path) : [];

@@ -143,6 +143,43 @@ def test_settings_validation_and_persistence(client: TestClient, tmp_path: Path)
     assert saved["output_dir"] == str((tmp_path / "out").resolve())
 
 
+def test_layout_is_a_setting_that_survives_restarts(client: TestClient, tmp_path: Path) -> None:
+    # The desktop app gets a new origin on every launch, so the window layout lives here
+    current = client.get("/api/settings", headers=AUTH).json()
+    assert current["queue_layout"] == "table" and current["sheet_height"] is None
+    patch = {"queue_layout": "cards", "inspector_pinned": True, "sheet_height": 420, "drawer_width": 520}
+    assert client.put("/api/settings", json=patch, headers=AUTH).json()["sheet_height"] == 420
+    assert client.put("/api/settings", json={"queue_layout": "grid"}, headers=AUTH).status_code == 422
+    assert client.put("/api/settings", json={"sheet_height": 20}, headers=AUTH).status_code == 422
+    # null goes back to the default size
+    assert (
+        client.put("/api/settings", json={"drawer_width": None}, headers=AUTH).json()["drawer_width"] is None
+    )
+    saved = json.loads((tmp_path / "data" / "settings.json").read_text())
+    assert saved["queue_layout"] == "cards" and saved["inspector_pinned"] is True
+    assert saved["sheet_height"] == 420 and saved["drawer_width"] is None
+
+
+@requires_ffmpeg
+def test_more_formats_for_a_file_over_http(client: TestClient, media_dir: Path) -> None:
+    added = client.post("/api/jobs", json={"paths": [str(media_dir / "clip.mp4")]}, headers=AUTH).json()
+    source = added["jobs"][0]
+    response = client.post(
+        "/api/jobs/formats", json={"ids": [source["id"], "missing"], "preset_id": "mp3"}, headers=AUTH
+    )
+    assert response.status_code == 200
+    body = response.json()
+    [extra] = body["jobs"]
+    assert extra["input_path"] == source["input_path"] and extra["options"]["preset_id"] == "mp3"
+    assert [e["code"] for e in body["errors"]] == ["job_not_found"]
+    listed = [job["id"] for job in client.get("/api/jobs", headers=AUTH).json()["jobs"]]
+    assert listed == [source["id"], extra["id"]]
+    unknown = client.post(
+        "/api/jobs/formats", json={"ids": [source["id"]], "preset_id": "nope"}, headers=AUTH
+    )
+    assert unknown.status_code == 422 and unknown.json()["code"] == "unknown_preset"
+
+
 def test_presets_and_fonts(client: TestClient) -> None:
     presets = client.get("/api/presets", headers=AUTH).json()
     assert len(presets) == 34 and all("available" in p for p in presets)
