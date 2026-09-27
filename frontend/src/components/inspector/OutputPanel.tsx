@@ -1,0 +1,704 @@
+import { Folder, Info, Plus, X } from "lucide-react";
+import { type ReactNode, useEffect, useState } from "react";
+import { toast } from "sonner";
+import { useShallow } from "zustand/react/shallow";
+import { addFormats, pickPaths, removeJobs, updateOptions } from "@/lib/actions";
+import { basename, displaySize } from "@/lib/format";
+import { localized, type Translator, useLang, useT } from "@/lib/i18n";
+import { frameLabel, gpuSupport, keepsHdr, type SizePlan, sizePlan } from "@/lib/presets";
+import { selectFormatsOf, usePreset, useStore } from "@/lib/store";
+import type { Accel, Job, JobOptions, Preset, Speed } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import { PresetIcon } from "../Brand";
+import { PresetPicker } from "../PresetPicker";
+import { Button } from "../ui/button";
+import { Select, Segmented, Slider, Switch } from "../ui/controls";
+import { Badge, Field, SectionTitle, StatusBadge } from "../ui/misc";
+import { Tip } from "../ui/overlay";
+
+const HEIGHTS = [2160, 1440, 1080, 720, 480, 360];
+// Below this video bitrate a size target gives visibly poor quality
+const LOW_SIZE_KBPS = 150;
+
+export function Note({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex gap-2.5 rounded-xl border border-border bg-elevated/60 p-3 text-[13px] leading-relaxed text-muted">
+      <Info className="mt-0.5 size-4 shrink-0 text-subtle" />
+      <div>{children}</div>
+    </div>
+  );
+}
+
+/** Patch applied when switching format: reset per-format values and keep subtitles valid. */
+export function presetPatch(job: Job, preset: Preset): Partial<JobOptions> {
+  const patch: Partial<JobOptions> = {
+    preset_id: preset.id,
+    quality: null,
+    audio_bitrate_kbps: null,
+    max_height: null,
+  };
+  const options = job.options;
+  const canBurn = !!preset.video && !preset.remux && !!job.media.video;
+  if (options.subtitle_mode === "soft") {
+    const track = options.subtitle_track != null ? job.media.subtitles[options.subtitle_track] : null;
+    const softOk = !!preset.soft_subtitles && (!track?.bitmap || preset.soft_bitmap_subtitles);
+    if (!softOk) patch.subtitle_mode = canBurn ? "burn" : "none";
+  } else if (options.subtitle_mode === "burn" && !canBurn) {
+    patch.subtitle_mode = "none";
+  }
+  // Copied audio cannot be filtered: volume and normalization go back to neutral
+  if (preset.remux || preset.audio?.codec === "copy") {
+    patch.volume_db = 0;
+    patch.normalize_audio = false;
+  }
+  return patch;
+}
+
+function qualityLabel(spec: NonNullable<Preset["video"]>, value: number, t: Translator): string {
+  if (spec.quality_min == null || spec.quality_max == null) return "";
+  if (spec.rate_control !== "crf" && spec.rate_control !== "quality") return "";
+  const span = spec.quality_max - spec.quality_min || 1;
+  // CRF: lower is better · quality (WebP): higher is better
+  const score = spec.rate_control === "crf" ? (spec.quality_max - value) / span : (value - spec.quality_min) / span;
+  if (score > 0.85) return t("opt.q.max");
+  if (score > 0.6) return t("opt.q.high");
+  if (score > 0.35) return t("opt.q.balanced");
+  return t("opt.q.compact");
+}
+
+function QualityField({ preset, options, onCommit, disabled }: {
+  preset: Preset;
+  options: JobOptions;
+  onCommit: (value: number) => void;
+  disabled: boolean;
+}) {
+  const t = useT();
+  const lang = useLang();
+  const spec = preset.video!;
+  const min = spec.quality_min ?? 0;
+  const max = spec.quality_max ?? 51;
+  const actual = options.quality ?? spec.quality ?? min;
+  const crf = spec.rate_control === "crf";
+  const bitrate = spec.rate_control === "bitrate";
+  // CRF: lower is better, so the slider is mirrored to keep "better" on the right
+  const toSlider = (value: number) => (crf ? min + max - value : value);
+  const [position, setPosition] = useState(toSlider(actual));
+  useEffect(() => setPosition(crf ? min + max - actual : actual), [actual, min, max, crf]);
+  const value = crf ? min + max - position : position;
+
+  return (
+    <Field
+      label={bitrate ? t("opt.bitrate") : t("opt.quality")}
+      aside={
+        bitrate ? (
+          `${value.toLocaleString(lang)} kb/s`
+        ) : (
+          <span>
+            {qualityLabel(spec, value, t)} <span className="text-subtle">· {crf ? `CRF ${value}` : value}</span>
+          </span>
+        )
+      }
+    >
+      <Slider
+        aria-label={t("opt.quality")}
+        min={min}
+        max={max}
+        step={bitrate ? 100 : 1}
+        value={position}
+        disabled={disabled}
+        onValueChange={setPosition}
+        onValueCommit={(v) => onCommit(crf ? min + max - v : v)}
+      />
+      <div className="flex justify-between text-[11px] text-subtle">
+        <span>{t("opt.smaller")}</span>
+        <span>{t("opt.better")}</span>
+      </div>
+    </Field>
+  );
+}
+
+function formatKbps(kbps: number, lang: string): string {
+  return kbps >= 1000
+    ? `${(kbps / 1000).toLocaleString(lang, { maximumFractionDigits: 1 })} Mb/s`
+    : `${kbps.toLocaleString(lang)} kb/s`;
+}
+
+/** Target file size in MB: quick picks plus a free value; shows the bitrate the engine will use. */
+function SizeField({
+  preset,
+  value,
+  plan,
+  resolution,
+  onCommit,
+  disabled,
+}: {
+  preset: Preset;
+  value: number;
+  plan: SizePlan | null;
+  resolution: string | null;
+  onCommit: (value: number) => void;
+  disabled: boolean;
+}) {
+  const t = useT();
+  const lang = useLang();
+  const spec = preset.video!;
+  const min = spec.quality_min ?? 1;
+  const max = spec.quality_max ?? 4000;
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+
+  const commit = () => {
+    const parsed = Math.round(Number(draft));
+    if (!Number.isFinite(parsed) || parsed <= 0) return setDraft(String(value));
+    const clamped = Math.min(max, Math.max(min, parsed));
+    setDraft(String(clamped));
+    if (clamped !== value) onCommit(clamped);
+  };
+
+  return (
+    <Field
+      label={t("opt.targetSize")}
+      aside={
+        plan
+          ? t("opt.sizeEstimate", {
+              bitrate: formatKbps(plan.videoKbps, lang),
+              resolution: resolution ?? "",
+            })
+          : undefined
+      }
+      hint={t("opt.targetSizeHint")}
+    >
+      {spec.quality_choices.length > 0 && (
+        <Segmented<string>
+          size="sm"
+          className="w-full"
+          value={String(value)}
+          disabled={disabled}
+          onValueChange={(mb) => onCommit(Number(mb))}
+          options={spec.quality_choices.map((mb) => ({ value: String(mb), label: `${mb} MB` }))}
+        />
+      )}
+      <div className="flex h-9 items-center rounded-lg border border-border bg-surface shadow-card transition focus-within:border-accent focus-within:ring-2 focus-within:ring-ring">
+        <input
+          type="number"
+          inputMode="numeric"
+          min={min}
+          max={max}
+          value={draft}
+          disabled={disabled}
+          aria-label={t("opt.targetSize")}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+          className="h-full min-w-0 flex-1 bg-transparent px-3 text-sm text-fg outline-none tabular disabled:opacity-50"
+        />
+        <span className="pr-3 text-sm text-subtle">MB</span>
+      </div>
+      {plan && plan.videoKbps < LOW_SIZE_KBPS && <p className="text-xs text-warning">{t("opt.sizeTooSmall")}</p>}
+    </Field>
+  );
+}
+
+function VolumeField({ value, onCommit, disabled }: { value: number; onCommit: (v: number) => void; disabled: boolean }) {
+  const t = useT();
+  const [local, setLocal] = useState(value);
+  useEffect(() => setLocal(value), [value]);
+  return (
+    <Field label={t("opt.volume")} aside={`${local > 0 ? "+" : ""}${local} dB`}>
+      <Slider
+        aria-label={t("opt.volume")}
+        min={-20}
+        max={20}
+        step={0.5}
+        value={local}
+        disabled={disabled}
+        onValueChange={setLocal}
+        onValueCommit={onCommit}
+      />
+    </Field>
+  );
+}
+
+/** CPU or GPU encoder for this file; only shown when the machine has a working GPU encoder. */
+function EngineField({
+  jobs,
+  preset,
+  disabled,
+  onChange,
+}: {
+  jobs: Job[];
+  preset: Preset;
+  disabled: boolean;
+  onChange: (accel: Accel) => void;
+}) {
+  const t = useT();
+  const hardware = useStore((s) => s.system?.hardware);
+  const preferGpu = useStore((s) => s.settings?.gpu_encoding ?? true);
+  const support = gpuSupport(preset, hardware);
+  if (support === "none" || !hardware) return null;
+  const [job] = jobs;
+  const accel = job.options.accel;
+  // A per-file choice wins, then the format's own preference, then the global setting
+  const choice = accel !== "auto" ? accel : preset.accel;
+  const autoGpu = preset.accel === "gpu" || (preset.accel === "auto" && preferGpu);
+  const onGpu = support === "ok" && (choice === "gpu" || (choice === "auto" && preferGpu));
+  let hint = onGpu ? t("opt.engineHint.gpu", { label: hardware.label ?? "GPU" }) : t("opt.engineHint.cpu");
+  if (support === "format") hint = t("opt.engineHint.format");
+  else if (support === "tenBit") hint = t("opt.engineHint.tenBit");
+  else if (jobs.length === 1 && job.gpu_fallback) hint = t("job.gpuFallback");
+  return (
+    <Field label={t("opt.engine")} hint={hint}>
+      <Segmented<Accel>
+        className="w-full"
+        value={accel}
+        disabled={disabled || support !== "ok"}
+        onValueChange={onChange}
+        options={[
+          { value: "auto", label: t("opt.engine.auto", { engine: support === "ok" && autoGpu ? "GPU" : "CPU" }) },
+          { value: "cpu", label: "CPU" },
+          { value: "gpu", label: "GPU" },
+        ]}
+      />
+    </Field>
+  );
+}
+
+function FileNameField({ job, preset, disabled }: { job: Job; preset: Preset; disabled: boolean }) {
+  const t = useT();
+  const stem = basename(job.input_path).replace(/\.[^.]+$/, "");
+  const [value, setValue] = useState(job.options.output_name ?? "");
+  useEffect(() => setValue(job.options.output_name ?? ""), [job.options.output_name]);
+  const commit = () => {
+    const next = value.trim();
+    const normalized = !next || next === stem ? null : next;
+    if (normalized !== job.options.output_name) void updateOptions([job.id], { output_name: normalized });
+  };
+  return (
+    <Field label={t("opt.fileName")}>
+      <div className="flex h-9 items-center rounded-lg border border-border bg-surface shadow-card transition focus-within:border-accent focus-within:ring-2 focus-within:ring-ring">
+        <input
+          value={value}
+          placeholder={stem}
+          disabled={disabled}
+          onChange={(event) => setValue(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+          className="h-full min-w-0 flex-1 bg-transparent px-3 text-sm text-fg outline-none placeholder:text-subtle disabled:opacity-50"
+        />
+        <span className="pr-3 text-sm text-subtle">{preset.extension}</span>
+      </div>
+    </Field>
+  );
+}
+
+function PresetTags({ preset }: { preset: Preset }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      <Badge>{preset.extension}</Badge>
+      {preset.tags.map((tag) => (
+        <Badge key={tag}>{tag}</Badge>
+      ))}
+    </div>
+  );
+}
+
+function AddFormatButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border-strong text-[13px] font-medium text-muted outline-none transition hover:border-accent hover:bg-accent-soft/40 hover:text-accent focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <Plus className="size-4" />
+      {label}
+    </button>
+  );
+}
+
+/** One format of the file: picks it for editing, or opens the format picker when it is the one shown. */
+function FormatItem({
+  id,
+  current,
+  formats,
+  locked,
+  onChange,
+}: {
+  id: string;
+  current: boolean;
+  formats: string[];
+  locked: boolean;
+  onChange: () => void;
+}) {
+  const t = useT();
+  const lang = useLang();
+  const job = useStore((s) => s.jobs[id]);
+  const preset = usePreset(job?.options.preset_id);
+  if (!job) return null;
+  const several = formats.length > 1;
+  const active = job.status === "running" || job.status === "paused";
+  // One format: what it is for. Several: the file each one writes, which is what tells them apart
+  const detail = several ? basename(job.output_path) : preset ? localized(preset.description, lang) : "";
+
+  const remove = async () => {
+    const at = formats.indexOf(id);
+    const neighbour = formats[at + 1] ?? formats[at - 1];
+    // Removing the format on screen keeps the panel on this file
+    if (current && neighbour) useStore.getState().setSelection([neighbour]);
+    await removeJobs([id]);
+  };
+
+  return (
+    <div
+      role="listitem"
+      className={cn(
+        "group relative flex items-center gap-3 rounded-xl border p-3 transition",
+        current
+          ? "border-accent/50 bg-accent-soft/40 shadow-[0_0_0_1px_var(--accent-soft)]"
+          : "border-border bg-surface shadow-card hover:border-border-strong",
+      )}
+    >
+      <button
+        onClick={current ? onChange : () => useStore.getState().setSelection([id])}
+        disabled={current && locked}
+        aria-current={current || undefined}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring disabled:cursor-default"
+      >
+        {preset && <PresetIcon preset={preset} />}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold text-fg">
+            {preset ? localized(preset.name, lang) : job.options.preset_id}
+          </span>
+          {/* The status shares the second line so the name keeps the width */}
+          <span className="mt-0.5 flex min-w-0 items-center gap-2">
+            <span className="truncate text-xs text-muted" title={several ? job.output_path : undefined}>
+              {detail}
+            </span>
+            {job.status !== "queued" && <StatusBadge status={job.status} className="py-0 text-[10px]" />}
+          </span>
+        </span>
+      </button>
+      {current && !locked && <span className="shrink-0 text-xs font-semibold text-accent">{t("opt.change")}</span>}
+      {several && !active && (
+        <Tip content={t("opt.removeFormat")}>
+          <button
+            aria-label={t("opt.removeFormat")}
+            onClick={() => void remove()}
+            className="relative z-10 -my-1 -mr-1 grid size-7 shrink-0 place-items-center rounded-md text-subtle opacity-0 outline-none transition hover:bg-elevated hover:text-danger focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+          >
+            <X className="size-4" />
+          </button>
+        </Tip>
+      )}
+    </div>
+  );
+}
+
+/** Every format this file is converted to (one job each): edit any of them, add more or drop one. */
+function FormatList({
+  job,
+  preset,
+  locked,
+  onChange,
+}: {
+  job: Job;
+  preset: Preset;
+  locked: boolean;
+  onChange: () => void;
+}) {
+  const t = useT();
+  const formats = useStore(useShallow(selectFormatsOf(job)));
+  const [adding, setAdding] = useState(false);
+  const several = formats.length > 1;
+
+  const add = async (next: Preset) => {
+    setAdding(false);
+    const [created] = await addFormats([job.id], next);
+    // Straight to the new format, ready to adjust
+    if (created) useStore.getState().setSelection([created.id]);
+  };
+
+  return (
+    <Field label={several ? `${t("opt.formats")} · ${formats.length}` : t("opt.format")}>
+      <div role="list" aria-label={t("opt.formats")} className="space-y-2">
+        {formats.map((id) => (
+          <FormatItem
+            key={id}
+            id={id}
+            current={id === job.id}
+            formats={formats}
+            locked={locked}
+            onChange={onChange}
+          />
+        ))}
+      </div>
+      <PresetTags preset={preset} />
+      <Tip content={t("opt.addFormatHint")}>
+        <div>
+          <AddFormatButton label={t("opt.addFormat")} onClick={() => setAdding(true)} />
+        </div>
+      </Tip>
+      <PresetPicker
+        open={adding}
+        onOpenChange={setAdding}
+        title={t("picker.addTitle")}
+        onSelect={(next) => void add(next)}
+        audioOnly={!job.media.video}
+      />
+    </Field>
+  );
+}
+
+export function OutputPanel({ jobs, locked }: { jobs: Job[]; locked: boolean }) {
+  const t = useT();
+  const lang = useLang();
+  const [job] = jobs;
+  const ids = jobs.map((j) => j.id);
+  const multi = jobs.length > 1;
+  const presets = useStore((s) => s.presets);
+  const settings = useStore((s) => s.settings);
+  const canTonemap = useStore((s) => s.system?.ffmpeg.can_tonemap ?? false);
+  const preset = presets.find((p) => p.id === job.options.preset_id);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [addingToAll, setAddingToAll] = useState(false);
+  if (!preset) return null;
+
+  const options = job.options;
+  const update = (patch: Partial<JobOptions>) => void updateOptions(ids, patch);
+  const video = jobs.find((j) => j.media.video)?.media.video ?? null;
+  const hasAudio = jobs.some((j) => j.media.audio.length > 0);
+  const spec = preset.video;
+  const encodesVideo = !!spec && !!video && !preset.remux && spec.codec !== "copy";
+  const showQuality = encodesVideo && ["crf", "bitrate", "quality"].includes(spec.rate_control);
+  const showSize = encodesVideo && spec.rate_control === "size";
+  const showResolution = encodesVideo;
+  const targetMb = options.quality ?? spec?.quality ?? 10;
+  const audioKbps = options.audio_bitrate_kbps ?? preset.audio?.bitrate_kbps ?? null;
+  const plan = showSize && !multi ? sizePlan(job.media, targetMb, audioKbps) : null;
+
+  let hdrNote: string | null = null;
+  if (encodesVideo && jobs.some((j) => j.media.video?.hdr)) {
+    hdrNote = keepsHdr(preset) ? t("opt.hdrKept") : canTonemap ? t("opt.hdrTonemap") : t("opt.hdrNoTonemap");
+  }
+
+  const choosePreset = (next: Preset) => {
+    setPickerOpen(false);
+    for (const item of jobs) void updateOptions([item.id], presetPatch(item, next));
+  };
+  const files = new Set(jobs.map((item) => item.input_path)).size;
+  const addToAll = async (next: Preset) => {
+    setAddingToAll(false);
+    const created = await addFormats(ids, next);
+    if (created.length) {
+      toast.success(t("toast.formatAdded", { format: localized(next.name, lang), count: created.length }));
+    }
+  };
+
+  let resolution: ReactNode = null;
+  let outputShortSide: string | null = null;
+  if (showResolution && video) {
+    const [w, h] = displaySize(video);
+    const short = Math.min(w, h);
+    const chosen = options.max_height ? options.max_height : options.max_height === 0 ? null : plan?.shortSide;
+    outputShortSide = `${Math.min(short, chosen ?? short)}p`;
+    if (preset.fixed_resolution) {
+      resolution = (
+        <Field label={t("opt.resolution")}>
+          <Note>{t("opt.res.fixed", { value: frameLabel(preset.frame) })}</Note>
+        </Field>
+      );
+    } else {
+      const presetDefault = spec?.max_height && !spec.max_width ? spec.max_height : null;
+      const autoLabel = plan
+        ? t("opt.res.auto", { value: plan.shortSide && plan.shortSide < short ? `${plan.shortSide}p` : `${short}p` })
+        : t("opt.res.autoPlain");
+      const choices = [
+        ...(showSize ? [{ value: "preset", label: autoLabel }] : []),
+        ...(presetDefault ? [{ value: "preset", label: t("opt.res.preset", { value: `${presetDefault}p` }) }] : []),
+        { value: "0", label: t("opt.res.original", { value: `${w}×${h}` }) },
+        ...HEIGHTS.filter((height) => height < short).map((height) => ({
+          value: String(height),
+          label: height === 2160 ? "4K · 2160p" : `${height}p`,
+        })),
+      ];
+      const current =
+        options.max_height == null ? (presetDefault || showSize ? "preset" : "0") : String(options.max_height);
+      resolution = (
+        <Field label={t("opt.resolution")}>
+          <Select
+            aria-label={t("opt.resolution")}
+            value={choices.some((c) => c.value === current) ? current : "0"}
+            options={choices}
+            disabled={locked}
+            onValueChange={(value) => update({ max_height: value === "preset" ? null : Number(value) })}
+          />
+        </Field>
+      );
+    }
+  }
+
+  const outputDir = options.output_dir ?? settings?.output_dir ?? null;
+
+  // Side panel: one column. Bottom sheet: the formats on the left and the settings of the one
+  // picked on the right, each scrolling on its own
+  return (
+    <div className="@3xl:grid @3xl:h-full @3xl:grid-cols-[minmax(18rem,26rem)_minmax(0,1fr)] @3xl:grid-rows-[minmax(0,1fr)]">
+      <div className="space-y-6 p-5 pb-1 @3xl:overflow-y-auto @3xl:border-r @3xl:border-border @3xl:pb-5">
+        {multi ? (
+          <Field label={t("opt.format")}>
+            <button
+              onClick={() => setPickerOpen(true)}
+              disabled={locked}
+              className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface p-3 text-left shadow-card outline-none transition hover:border-border-strong focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+            >
+              <PresetIcon preset={preset} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold text-fg">{localized(preset.name, lang)}</div>
+                <div className="truncate text-xs text-muted">{localized(preset.description, lang)}</div>
+              </div>
+              <span className="text-xs font-semibold text-accent">{t("opt.change")}</span>
+            </button>
+            <PresetTags preset={preset} />
+            <AddFormatButton label={t("opt.addFormatMany", { count: files })} onClick={() => setAddingToAll(true)} />
+          </Field>
+        ) : (
+          <FormatList job={job} preset={preset} locked={locked} onChange={() => setPickerOpen(true)} />
+        )}
+
+        {preset.remux && <Note>{t("opt.remuxNote")}</Note>}
+        {preset.category === "editing" && <Note>{t("opt.editingNote")}</Note>}
+        {!preset.audio && !!spec?.fps && <Note>{t("opt.animationNote", { fps: spec.fps })}</Note>}
+        {hdrNote && <Note>{hdrNote}</Note>}
+      </div>
+
+      <div className="p-5 @3xl:overflow-y-auto">
+        <div className="grid grid-cols-1 items-start gap-x-10 gap-y-6 @5xl:grid-cols-2">
+          {(showQuality || showSize || spec?.speed_family || showResolution) && (
+            <div className="space-y-5">
+              <SectionTitle>{t("info.video")}</SectionTitle>
+              {showQuality && (
+                <QualityField
+                  preset={preset}
+                  options={options}
+                  disabled={locked}
+                  onCommit={(q) => update({ quality: q })}
+                />
+              )}
+              {showSize && (
+                <SizeField
+                  preset={preset}
+                  value={targetMb}
+                  plan={plan}
+                  resolution={outputShortSide}
+                  disabled={locked}
+                  onCommit={(q) => update({ quality: q })}
+                />
+              )}
+              {spec?.speed_family && video && (
+                <Field label={t("opt.speed")} hint={t("opt.speedHint")}>
+                  <Segmented<Speed>
+                    className="w-full"
+                    value={options.speed}
+                    disabled={locked}
+                    onValueChange={(speed) => update({ speed })}
+                    options={[
+                      { value: "fast", label: t("opt.speed.fast") },
+                      { value: "balanced", label: t("opt.speed.balanced") },
+                      { value: "quality", label: t("opt.speed.quality") },
+                    ]}
+                  />
+                </Field>
+              )}
+              {encodesVideo && (
+                <EngineField jobs={jobs} preset={preset} disabled={locked} onChange={(accel) => update({ accel })} />
+              )}
+              {resolution}
+            </div>
+          )}
+
+          <div className="space-y-6">
+            {preset.audio && hasAudio && !preset.remux && preset.audio.codec !== "copy" && (
+              <div className="space-y-5">
+                <SectionTitle>{t("opt.audio")}</SectionTitle>
+                {preset.audio.bitrate_choices.length > 0 && (
+                  <Field label={t("opt.audioBitrate")}>
+                    <Select
+                      aria-label={t("opt.audioBitrate")}
+                      value={String(options.audio_bitrate_kbps ?? preset.audio.bitrate_kbps)}
+                      disabled={locked}
+                      options={preset.audio.bitrate_choices.map((kbps) => ({
+                        value: String(kbps),
+                        label: `${kbps} kb/s`,
+                      }))}
+                      onValueChange={(value) => update({ audio_bitrate_kbps: Number(value) })}
+                    />
+                  </Field>
+                )}
+                <VolumeField
+                  value={options.volume_db}
+                  disabled={locked}
+                  onCommit={(volume_db) => update({ volume_db })}
+                />
+                <label className="flex items-center justify-between gap-4">
+                  <span>
+                    <span className="block text-[13px] font-medium text-fg">{t("opt.normalize")}</span>
+                    <span className="block text-xs text-subtle">{t("opt.normalizeHint")}</span>
+                  </span>
+                  <Switch
+                    checked={options.normalize_audio}
+                    disabled={locked}
+                    onCheckedChange={(normalize_audio) => update({ normalize_audio })}
+                  />
+                </label>
+              </div>
+            )}
+
+            <div className="space-y-5">
+              <SectionTitle>{t("opt.destination")}</SectionTitle>
+              <div className="flex items-center gap-2 rounded-xl border border-border bg-surface p-2 pl-3 shadow-card">
+                <Folder className="size-4 shrink-0 text-subtle" />
+                <span className="min-w-0 flex-1 truncate text-[13px] text-fg" title={outputDir ?? undefined}>
+                  {outputDir ?? t("opt.nextToOriginal")}
+                </span>
+                {options.output_dir && (
+                  <Button variant="ghost" size="xs" disabled={locked} onClick={() => update({ output_dir: null })}>
+                    {t("opt.reset")}
+                  </Button>
+                )}
+                <Button
+                  size="xs"
+                  disabled={locked}
+                  onClick={async () => {
+                    const [dir] = await pickPaths("folder");
+                    if (dir) update({ output_dir: dir });
+                  }}
+                >
+                  {t("opt.change")}
+                </Button>
+              </div>
+              {!multi && <FileNameField job={job} preset={preset} disabled={locked} />}
+              {!multi && (
+                <p className="break-all text-xs text-subtle" title={job.output_path}>
+                  {t("opt.outputPath", { path: job.output_path })}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <PresetPicker
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        value={preset.id}
+        onSelect={choosePreset}
+        audioOnly={!video}
+      />
+      <PresetPicker
+        open={addingToAll}
+        onOpenChange={setAddingToAll}
+        title={t("picker.addTitle")}
+        onSelect={(next) => void addToAll(next)}
+        audioOnly={!video}
+      />
+    </div>
+  );
+}
