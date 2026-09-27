@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.lam1623.stallion</id>
+  <name>Stallion</name>
+  <summary>Convert video and audio with FFmpeg</summary>
+  <summary xml:lang="es">Convierte vídeo y audio con FFmpeg</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <developer id="io.github.lam1623">
+    <name>Lino Alfonso</name>
+  </developer>
+  <description>
+    <p>
+      Stallion is a friendly converter for video and audio. Pick a ready-made format, or make your own,
+      and it takes care of FFmpeg for you.
+    </p>
+    <ul>
+      <li>34 formats: MP4, WebM, MKV, AV1 and HEVC with HDR, social media, editing and audio</li>
+      <li>Several formats from one file, in one go</li>
+      <li>Subtitles burned in or embedded, and audio track selection</li>
+      <li>GPU encoding with NVIDIA, Intel and AMD, with a CPU fallback</li>
+      <li>A queue with live progress and a CPU and GPU activity monitor</li>
+    </ul>
+    <p xml:lang="es">
+      Stallion es un conversor de vídeo y audio amable. Elige un formato listo, o crea el tuyo,
+      y se encarga de FFmpeg por ti.
+    </p>
+  </description>
+  <launchable type="desktop-id">stallion.desktop</launchable>
+  <url type="homepage">https://github.com/lam1623/stallion-python</url>
+  <url type="bugtracker">https://github.com/lam1623/stallion-python/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>The conversion queue</caption>
+      <image>https://raw.githubusercontent.com/lam1623/stallion-python/master/docs/screenshots/queue-light.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>One video converted to several formats</caption>
+      <image>https://raw.githubusercontent.com/lam1623/stallion-python/master/docs/screenshots/table-light.png</image>
+    </screenshot>
+  </screenshots>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="4.0.0" date="2026-09-27">
+      <description>
+        <p>A full rebuild on FFmpeg with a new interface, GPU encoding, custom formats and a queue that
+        converts one file to several formats.</p>
+      </description>
+    </release>
+  </releases>
+</component>

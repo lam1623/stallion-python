@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from .ffmpeg import POPEN_KWARGS
+from .ffmpeg import popen_kwargs
 
 BITMAP_SUBTITLE_CODECS = frozenset(
     {"hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle", "xsub", "dvb_teletext", "arib_caption"}
@@ -239,7 +239,7 @@ async def probe_media(path: str | Path, ffprobe: str, time_limit: float = 60.0) 
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            **POPEN_KWARGS,
+            **popen_kwargs(),
         )
     except OSError as exc:
         raise ProbeError(f"Cannot run ffprobe: {exc}") from exc

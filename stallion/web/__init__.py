@@ -9,7 +9,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from ..engine.ffmpeg import POPEN_KWARGS
+from ..engine.ffmpeg import popen_kwargs
 
 STATIC_DIR = Path(__file__).resolve().parent / "dist"
 # Only present in a source checkout: wheels and the Docker image ship the built UI alone
@@ -75,7 +75,7 @@ def _npm(npm: str, args: list[str], frontend_dir: Path) -> bool:
             errors="replace",
             timeout=_NPM_TIMEOUT,
             check=False,
-            **POPEN_KWARGS,
+            **popen_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         log.error("`%s` failed (%s): keeping the previous web UI", command, exc)

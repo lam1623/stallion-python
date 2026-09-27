@@ -39,7 +39,7 @@ from .engine.custom import (
     draft_warnings,
     new_preset_id,
 )
-from .engine.ffmpeg import POPEN_KWARGS, FFmpegInfo
+from .engine.ffmpeg import FFmpegInfo, popen_kwargs
 from .engine.hwaccel import NO_HARDWARE, GpuPlan, HardwareEncoders, detect_hardware, wants_gpu
 from .engine.options import JobOptions
 from .engine.presets import Preset, PresetCatalog, PresetView
@@ -1089,7 +1089,7 @@ class JobManager:
                     stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
-                    **POPEN_KWARGS,
+                    **popen_kwargs(),
                 )
                 try:
                     await asyncio.wait_for(proc.wait(), 30)

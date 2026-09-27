@@ -6,6 +6,8 @@
 .venv
 venv
 stallion/web/dist
+dist
+build
 frontend/dist
 legacy
 tests

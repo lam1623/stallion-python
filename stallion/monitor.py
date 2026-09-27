@@ -18,7 +18,7 @@ from typing import Any
 
 import psutil
 
-from .engine.ffmpeg import POPEN_KWARGS
+from .engine.ffmpeg import popen_kwargs
 
 log = logging.getLogger(__name__)
 
@@ -167,7 +167,7 @@ async def _output(argv: list[str], time_limit: float = 3.0) -> str | None:
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
-            **POPEN_KWARGS,
+            **popen_kwargs(),
         )
     except OSError:
         return None

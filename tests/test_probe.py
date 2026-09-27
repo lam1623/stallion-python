@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from stallion.engine.ffmpeg import FFmpegInfo, discover, parse_encoders, parse_filters
+from stallion.engine.ffmpeg import FFmpegInfo, discover, parse_encoders, parse_filters, popen_kwargs
 from stallion.engine.probe import ProbeError, parse_probe, probe_media
 
 from .conftest import requires_ffmpeg
@@ -152,3 +152,17 @@ async def test_probe_errors(tmp_path: Path, ffmpeg_info: FFmpegInfo) -> None:
         await probe_media(junk, ffmpeg_info.ffprobe)
     with pytest.raises(ProbeError, match="Cannot run ffprobe"):
         await probe_media(junk, "/nonexistent/ffprobe")
+
+
+def test_programs_get_the_system_libraries_in_packaged_builds(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/opt/stallion/_internal")
+    # Running from source: children simply inherit the environment
+    assert "env" not in popen_kwargs()
+    assert popen_kwargs(SVT_LOG="1")["env"]["SVT_LOG"] == "1"
+    # Packaged (PyInstaller): the bundled libraries must not leak into FFmpeg or xdg-open
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert "LD_LIBRARY_PATH" not in popen_kwargs()["env"]
+    monkeypatch.setenv("LD_LIBRARY_PATH_ORIG", "/usr/local/lib")
+    env = popen_kwargs(SVT_LOG="1")["env"]
+    assert env["LD_LIBRARY_PATH"] == "/usr/local/lib" and "LD_LIBRARY_PATH_ORIG" not in env
+    assert env["SVT_LOG"] == "1"

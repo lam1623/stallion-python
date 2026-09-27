@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from functools import lru_cache
 
-from .engine.ffmpeg import POPEN_KWARGS
+from .engine.ffmpeg import popen_kwargs
 
 FALLBACK_FONTS = [
     "Arial",
@@ -39,7 +39,7 @@ def list_fonts() -> list[str]:
             timeout=10,
             check=False,
             stdin=subprocess.DEVNULL,
-            **POPEN_KWARGS,
+            **popen_kwargs(),
         )
     except (OSError, subprocess.SubprocessError):
         return FALLBACK_FONTS
