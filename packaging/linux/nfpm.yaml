@@ -124,6 +124,8 @@ overrides:
       - libXrandr.so.2()(64bit)
       - libXtst.so.6()(64bit)
       - libz.so.1()(64bit)
+      # Chromium draws no text at all without a system font, even with the UI's own web fonts
+      - liberation-fonts
     recommends:
       - xdg-utils
   archlinux:
@@ -151,6 +153,7 @@ overrides:
       - nss
       - openssl
       - systemd-libs
+      - ttf-font
       - util-linux-libs
       - wayland
       - zlib
