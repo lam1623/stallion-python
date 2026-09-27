@@ -117,8 +117,14 @@ jobs:
         with:
           name: linux-packages
           path: dist/linux
+      # A release drafted on GitHub for the tag gets the packages attached; otherwise one is created
       - env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/linux/* --repo "$GITHUB_REPOSITORY" \
-            --title "Stallion ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/linux/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/linux/* \
+              --title "Stallion ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag
+          fi
