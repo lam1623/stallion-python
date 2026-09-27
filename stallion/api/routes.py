@@ -39,6 +39,11 @@ class IdsRequest(BaseModel):
     ids: list[str] = Field(min_length=1, max_length=2000)
 
 
+class AddFormatsRequest(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=2000)
+    preset_id: str = Field(min_length=1, max_length=120)
+
+
 class ClearRequest(BaseModel):
     statuses: list[JobStatus] = [JobStatus.COMPLETED]
 
@@ -163,6 +168,14 @@ async def add_jobs(payload: AddJobsRequest, ctx: AppContext = Depends(get_ctx)) 
 @router.patch("/jobs")
 async def update_jobs(payload: BulkUpdateRequest, ctx: AppContext = Depends(get_ctx)) -> dict[str, Any]:
     jobs, errors = ctx.manager.update_many(payload.ids, payload.options)
+    return {"jobs": [ctx.manager.dump(j) for j in jobs], "errors": errors}
+
+
+@router.post("/jobs/formats")
+async def add_formats(payload: AddFormatsRequest, ctx: AppContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Convert the files of these jobs to one more format (a new job per file)."""
+
+    jobs, errors = ctx.manager.add_formats(payload.ids, payload.preset_id)
     return {"jobs": [ctx.manager.dump(j) for j in jobs], "errors": errors}
 
 

@@ -5,6 +5,7 @@ export type SubtitleMode = "none" | "soft" | "burn";
 export type Speed = "fast" | "balanced" | "quality";
 /** "auto" follows the GPU setting; "cpu"/"gpu" pin the choice for one file */
 export type Accel = "auto" | "cpu" | "gpu";
+export type QueueLayout = "cards" | "table";
 export type PresetCategory = "custom" | "video" | "social" | "editing" | "audio" | "remux" | "legacy";
 export type Localized = Record<string, string>;
 
@@ -235,6 +236,12 @@ export interface Settings {
   theme: "system" | "dark" | "light";
   language: "auto" | "es" | "en";
   gpu_encoding: boolean;
+  queue_layout: QueueLayout;
+  // Window layout: kept on the server because the desktop app starts on a new origin every time
+  inspector_pinned: boolean;
+  sidebar_collapsed: boolean;
+  sheet_height: number | null;
+  drawer_width: number | null;
 }
 
 /** GPU encoders that passed a test encode on this machine. */

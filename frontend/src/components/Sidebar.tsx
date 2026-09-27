@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { saveSettings } from "@/lib/actions";
 import { useMediaQuery } from "@/lib/hooks";
 import { useT } from "@/lib/i18n";
-import { useStore, type View } from "@/lib/store";
+import { selectSidebarCollapsed, useStore, type View } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Logo } from "./Brand";
 import { Tip } from "./ui/overlay";
@@ -93,8 +93,8 @@ export function Sidebar() {
   const system = useStore((s) => s.system);
   const connection = useStore((s) => s.connection);
   const pending = useStore((s) => s.queue.counts.queued + s.queue.counts.running + s.queue.counts.paused);
-  const collapsed = useStore((s) => s.sidebarCollapsed);
-  const setCollapsed = useStore((s) => s.setSidebarCollapsed);
+  const collapsed = useStore(selectSidebarCollapsed);
+  const setCollapsed = (sidebar_collapsed: boolean) => void saveSettings({ sidebar_collapsed });
   // Small windows always get the icon rail; wide ones follow the user's choice
   const roomy = useMediaQuery("(min-width: 1024px)");
   const rail = collapsed || !roomy;

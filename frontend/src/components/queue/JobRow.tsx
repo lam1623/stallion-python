@@ -1,6 +1,7 @@
 import {
   ArrowRight,
   Captions,
+  CornerDownRight,
   FileText,
   FolderOpen,
   Film,
@@ -29,7 +30,7 @@ import {
 } from "@/lib/format";
 import { type Lang, localized, type Translator, useLang, useT } from "@/lib/i18n";
 import { nativeApi } from "@/lib/native";
-import type { QueueLayout } from "@/lib/prefs";
+import type { QueueLayout } from "@/lib/types";
 import { usePreset, useStore } from "@/lib/store";
 import type { Job } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -46,8 +47,9 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tip } from "..
 export const GRID: Record<QueueLayout, string> = {
   cards:
     "grid-cols-[5.5rem_minmax(0,1fr)_minmax(0,1fr)_5.5rem] @3xl:grid-cols-[7rem_minmax(0,1.4fr)_minmax(0,1.1fr)_minmax(0,1.5fr)_5.5rem] @6xl:grid-cols-[7rem_minmax(0,1.4fr)_minmax(0,1.1fr)_minmax(0,1.5fr)_7.5rem_8.5rem_5.5rem]",
+  // The format gets the room: it is what tells the formats of one file apart
   table:
-    "grid-cols-[4rem_minmax(0,1.6fr)_7.5rem_minmax(0,1.3fr)_5.5rem] @3xl:grid-cols-[4rem_minmax(0,1.6fr)_minmax(0,1.1fr)_7.5rem_minmax(0,1.3fr)_5.5rem] @5xl:grid-cols-[4rem_minmax(0,1.6fr)_minmax(0,1.3fr)_minmax(0,1.1fr)_7.5rem_minmax(0,1.3fr)_5.5rem] @6xl:grid-cols-[4rem_minmax(0,1.6fr)_minmax(0,1.3fr)_minmax(0,1.1fr)_7.5rem_minmax(0,1.3fr)_5.5rem_6.5rem_7.5rem_5.5rem]",
+    "grid-cols-[4rem_minmax(0,1.6fr)_7.5rem_minmax(0,1.3fr)_5.5rem] @3xl:grid-cols-[4rem_minmax(0,1.6fr)_minmax(0,1.3fr)_7.5rem_minmax(0,1.3fr)_5.5rem] @5xl:grid-cols-[4rem_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.4fr)_7.5rem_minmax(0,1.3fr)_5.5rem] @6xl:grid-cols-[4rem_minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.4fr)_7.5rem_minmax(0,1.3fr)_5.5rem_6.5rem_7.5rem_5.5rem]",
 };
 
 // Optional columns: hidden cells take no grid track
@@ -312,7 +314,16 @@ function Stacked({ main, note, title, className }: { main: string; note: string 
   );
 }
 
-export const JobRow = memo(function JobRow({ id, layout }: { id: string; layout: QueueLayout }) {
+export const JobRow = memo(function JobRow({
+  id,
+  layout,
+  continued = false,
+}: {
+  id: string;
+  layout: QueueLayout;
+  /** Another format of the file in the row above. */
+  continued?: boolean;
+}) {
   const job = useStore((s) => s.jobs[id]);
   const selected = useStore((s) => s.selected.includes(id));
   const preset = usePreset(job?.options.preset_id);
@@ -373,9 +384,19 @@ export const JobRow = memo(function JobRow({ id, layout }: { id: string; layout:
       </div>
 
       <div className="min-w-0">
-        <div className={cn("truncate font-medium text-fg", table ? "text-[13px]" : "text-sm")} title={job.input_path}>
-          {job.name}
+        <div
+          className={cn(
+            "flex min-w-0 items-center gap-1.5 font-medium",
+            continued ? "text-muted" : "text-fg",
+            table ? "text-[13px]" : "text-sm",
+          )}
+          title={job.input_path}
+        >
+          {continued && <CornerDownRight aria-hidden className="size-3.5 shrink-0 text-subtle" />}
+          <span className="truncate">{job.name}</span>
         </div>
+        {/* Narrow tables hide the format column, yet it is what tells the formats of a file apart */}
+        {table && <div className="truncate text-xs text-muted @3xl:hidden">{presetName}</div>}
         {!table && (
           <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted">
             <span className="truncate">{summary.join(" · ")}</span>

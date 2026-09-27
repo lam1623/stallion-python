@@ -3,7 +3,7 @@ import { ApiError, api } from "./api";
 import { hasKey, resolveLang, type TranslationKey, translate } from "./i18n";
 import { nativeApi } from "./native";
 import { type BrowserMode, useStore } from "./store";
-import type { JobOptions, JobStatus, Settings } from "./types";
+import type { Job, JobOptions, JobStatus, Preset, Settings } from "./types";
 
 function tr(key: TranslationKey, vars?: Record<string, string | number>): string {
   return translate(resolveLang(useStore.getState().settings?.language), key, vars);
@@ -98,6 +98,26 @@ export async function updateOptions(ids: string[], patch: Partial<JobOptions>) {
   } catch (error) {
     previous.forEach(useStore.getState().upsertJob);
     reportError(error);
+  }
+}
+
+/** Convert the files of these jobs to one more format each; returns the new jobs. */
+export async function addFormats(ids: string[], preset: Preset): Promise<Job[]> {
+  if (!ids.length) return [];
+  try {
+    const { jobs, errors } = await api.addFormats(ids, preset.id);
+    useStore.getState().insertJobs(jobs);
+    if (errors.length) {
+      const first = errors[0];
+      const reason = hasKey(`errors.${first.code}`) ? tr(`errors.${first.code}` as TranslationKey) : first.message;
+      toast.warning(errors.length === 1 ? first.name : tr("toast.skipped", { count: errors.length }), {
+        description: reason,
+      });
+    }
+    return jobs;
+  } catch (error) {
+    reportError(error);
+    return [];
   }
 }
 

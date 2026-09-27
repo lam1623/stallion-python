@@ -3,7 +3,7 @@ import { type ReactNode, useState } from "react";
 import { logout, pickPaths, saveSettings } from "@/lib/actions";
 import { localized, useLang, useT } from "@/lib/i18n";
 import { usePreset, useStore } from "@/lib/store";
-import type { Settings } from "@/lib/types";
+import type { QueueLayout, Settings } from "@/lib/types";
 import { PresetIcon } from "./Brand";
 import { PresetPicker } from "./PresetPicker";
 import { Button } from "./ui/button";
@@ -82,6 +82,20 @@ export function SettingsView() {
                   { value: "light", label: t("theme.light") },
                   { value: "dark", label: t("theme.dark") },
                   { value: "system", label: t("theme.system") },
+                ]}
+              />
+            }
+          />
+          <Row
+            title={t("set.queueView")}
+            description={t("set.queueViewHint")}
+            control={
+              <Segmented<QueueLayout>
+                value={settings.queue_layout}
+                onValueChange={(queue_layout) => void saveSettings({ queue_layout })}
+                options={[
+                  { value: "table", label: t("queue.layout.table") },
+                  { value: "cards", label: t("queue.layout.cards") },
                 ]}
               />
             }

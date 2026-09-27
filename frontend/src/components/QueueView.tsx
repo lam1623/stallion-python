@@ -18,10 +18,10 @@ import {
 } from "lucide-react";
 import { type MouseEvent, useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { addFiles, addFolder, clearQueue, removeJobs, toggleQueue } from "@/lib/actions";
+import { addFiles, addFolder, clearQueue, removeJobs, saveSettings, toggleQueue } from "@/lib/actions";
 import { formatBytes } from "@/lib/format";
 import { type TranslationKey, useLang, useT } from "@/lib/i18n";
-import { type QueueFilter, type QueueLayout, useStore, visibleOrder } from "@/lib/store";
+import { type QueueFilter, type QueueLayout, selectLayout, selectPinned, useStore, visibleOrder } from "@/lib/store";
 import { cn, isMac } from "@/lib/utils";
 import { InspectorDrawer, InspectorSheet } from "./inspector/Inspector";
 import { ActivityStrip } from "./queue/ActivityStrip";
@@ -217,10 +217,9 @@ function QueueToolbar() {
   const total = useStore((s) => s.order.length);
   const filter = useStore((s) => s.queueFilter);
   const query = useStore((s) => s.queueQuery);
-  const layout = useStore((s) => s.layout);
+  const layout = useStore(selectLayout);
   const setFilter = useStore((s) => s.setQueueFilter);
   const setQuery = useStore((s) => s.setQueueQuery);
-  const setLayout = useStore((s) => s.setLayout);
 
   const count = (value: QueueFilter) =>
     value === "all" ? total : value === "active" ? counts.running + counts.paused : counts[value];
@@ -285,7 +284,7 @@ function QueueToolbar() {
           size="sm"
           aria-label={t("queue.layout")}
           value={layout}
-          onValueChange={setLayout}
+          onValueChange={(queue_layout) => void saveSettings({ queue_layout })}
           className="h-8 items-center"
           options={[
             {
@@ -344,6 +343,10 @@ function NoMatch() {
 function JobList({ layout }: { layout: QueueLayout }) {
   const t = useT();
   const shown = useStore(useShallow(visibleOrder));
+  // Another format of the file in the row above: drawn as part of that file
+  const continued = useStore(
+    useShallow((s) => shown.map((id, i) => i > 0 && s.jobs[shown[i - 1]]?.input_path === s.jobs[id]?.input_path)),
+  );
   const nothingSelected = useStore((s) => s.selected.length === 0);
   const setSelection = useStore((s) => s.setSelection);
   const table = layout === "table";
@@ -368,8 +371,8 @@ function JobList({ layout }: { layout: QueueLayout }) {
             aria-label={t("queue.title")}
             className={cn(!table && "flex flex-col gap-2")}
           >
-            {shown.map((id) => (
-              <JobRow key={id} id={id} layout={layout} />
+            {shown.map((id, i) => (
+              <JobRow key={id} id={id} layout={layout} continued={continued[i]} />
             ))}
           </div>
           {nothingSelected && (
@@ -433,8 +436,8 @@ function EmptyState() {
  */
 export function QueueView() {
   const hasJobs = useStore((s) => s.order.length > 0);
-  const layout = useStore((s) => s.layout);
-  const pinned = useStore((s) => s.pinned);
+  const layout = useStore(selectLayout);
+  const pinned = useStore(selectPinned);
   useQueueShortcuts();
   const cards = layout === "cards";
 
